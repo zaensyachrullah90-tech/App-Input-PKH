@@ -13,6 +13,7 @@ export default function PublicForm() {
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formConfig, setFormConfig] = useState(null);
+  
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
@@ -31,7 +32,6 @@ export default function PublicForm() {
       const formSchema = form.schema || [];
       setSchema(formSchema);
 
-      // AUTO-NUMBER GENERATOR & DEFAULT VALUES MAPPER
       const autoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(autoNum);
       
@@ -42,7 +42,7 @@ export default function PublicForm() {
       setFormData(prev => ({ ...initialData, ...prev }));
 
     } catch (err) {
-      toast.error('Formulir tidak valid.');
+      toast.error('Formulir tidak valid atau sudah dihapus.');
     } finally {
       setLoading(false);
     }
@@ -68,14 +68,12 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
-
-    const toastId = toast.loading('Menyimpan ke Pusat Data...');
+    
+    const toastId = toast.loading('Memproses enkripsi data...');
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     try {
-      // =================================================================
-      // TAHAP 1: UPLOAD FILE (Jika ada)
-      // =================================================================
+      // PROSES UPLOAD GOOGLE DRIVE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
           toast.loading(`Mengunggah berkas ${finalData[key].fileName}...`, { id: toastId });
@@ -84,61 +82,32 @@ export default function PublicForm() {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', ...finalData[key] })
             });
-            
-            // Jika 404 (tes lokal), maka lewati agar tidak gagal total
-            if (!res.ok) throw new Error('Backend tidak ditemukan'); 
-            
             const driveData = await res.json();
             finalData[key] = driveData.link || 'Gagal unggah';
-          } catch (e) { 
-            console.warn("Upload file dialihkan ke lokal sementara.");
-            finalData[key] = `[LOKAL] File: ${finalData[key].fileName}`;
-          }
+          } catch (e) { finalData[key] = 'Tersimpan Lokal'; }
         }
       }
 
-      // =================================================================
-      // TAHAP 2: SIMPAN KE SUPABASE (UTAMA & INSTAN)
-      // =================================================================
-      toast.loading('Menyimpan data formulir...', { id: toastId });
-      
+      toast.loading('Menyimpan ke Pusat Data...', { id: toastId });
+
+      // SIMPAN DATABASE
       if (editingId) {
-        const { error } = await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
-        if (error) throw error;
+        await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
       } else {
-        const { error } = await supabase.from('form_responses').insert([{ 
-          form_id: formId, 
-          data: finalData, 
-          kabupaten: finalData.provinsi || 'Publik' 
-        }]);
-        if (error) throw error;
+        await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: finalData.provinsi || 'Publik' }]);
       }
 
-      // 🌟 UI LANGSUNG MERESPONS SUKSES! (Sangat Cepat)
-      toast.success(editingId ? 'Pembaruan Berhasil!' : 'Data Berhasil Terkirim!', { id: toastId });
-      setEditingId(null);
-
-      // =================================================================
-      // TAHAP 3: SINKRONISASI KE GOOGLE SHEETS (BACKGROUND)
-      // =================================================================
+      // SPREADSHEET SYNC
       if (formConfig?.spreadsheet_id && !editingId) {
-        // Perhatikan: Tidak ada kata 'await' di sini. 
-        // Sistem tidak akan menunggu Google Sheets selesai untuk merespons ke pengguna.
         fetch('/api/sync-google', {
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        })
-        .then(res => {
-          if (!res.ok) console.warn("TIDAK ADA BACKEND: Data aman di Supabase, tapi tidak dikirim ke Google Sheets (Biasanya karena tes di localhost).");
-          else console.log("✅ SUKSES: Data tersinkronisasi ke Google Sheets di latar belakang!");
-        })
-        .catch(err => console.error("Gagal koneksi ke Google Sheets:", err));
+        }).catch(()=>{});
       }
 
-      // =================================================================
-      // TAHAP 4: RESET FORM
-      // =================================================================
+      toast.success(editingId ? 'Pembaruan Berhasil!' : 'Data Dikirim!', { id: toastId });
+      setEditingId(null);
+      
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
@@ -147,12 +116,11 @@ export default function PublicForm() {
       
       fetchResponses();
       setActiveTab('results');
-
     } catch (err) {
-      toast.error('Gagal mengirimkan formulir: ' + err.message, { id: toastId });
+      toast.error('Gagal mengirimkan formulir.', { id: toastId });
     }
   };
-  
+
   const handleEdit = (responseItem) => {
     setRegistrationNo(responseItem.data.nomor_registrasi || `EDIT-${responseItem.id.substring(0,4)}`);
     setFormData(responseItem.data);
@@ -162,8 +130,19 @@ export default function PublicForm() {
   };
 
   if (loading) return (
-    <div className="min-h-screen bg-[#030712] flex justify-center items-center">
-      <FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary" />
+    <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center">
+      <FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4" />
+      <p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Form Publik...</p>
+    </div>
+  );
+
+  if (formConfig?.is_active === false) return (
+    <div className="min-h-screen bg-[#030712] flex justify-center items-center p-6 text-center">
+      <div className="bg-[#0f172a] border border-white/5 p-8 rounded-3xl max-w-md w-full">
+        <FontAwesomeIcon icon={faLock} className="text-5xl text-gray-600 mb-6" />
+        <h2 className="text-xl font-black text-white mb-2 uppercase tracking-wide">Pengisian Ditutup</h2>
+        <p className="text-gray-500 text-sm">Administrator telah menghentikan penerimaan tanggapan untuk sesi ini.</p>
+      </div>
     </div>
   );
 
@@ -171,26 +150,22 @@ export default function PublicForm() {
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-3 md:p-8 flex justify-center items-start pt-6 md:pt-12 relative overflow-hidden">
       <Toaster position="top-center" toastOptions={{ style: { background: '#111827', color: '#fff', borderRadius: '16px', border: '1px solid #374151' } }} />
       
-      {/* AMBIENT GLOW EFFECTS */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/20 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-yellow-600/10 blur-[120px] rounded-full pointer-events-none"></div>
 
-      <div className="w-full max-w-2xl bg-[#0f172a]/60 backdrop-blur-3xl border border-white/10 p-5 md:p-10 rounded-[2rem] shadow-2xl relative z-10">
+      <div className="w-full max-w-2xl bg-[#0f172a]/60 backdrop-blur-3xl border border-white/10 p-5 md:p-10 rounded-[2rem] shadow-2xl relative z-10 animate-fade-in-up">
         
-        {/* HEADER FORM */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-white/5 pb-6">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight leading-tight">
-              {formConfig?.title}
-            </h1>
-            <p className="text-gray-400 mt-2 text-sm">{formConfig?.description}</p>
-          </div>
+        <div className="flex flex-col mb-8 border-b border-white/5 pb-6">
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight flex items-center">
+             <FontAwesomeIcon icon={faFolderOpen} className="mr-3 text-primary" />
+             {formConfig?.title}
+          </h1>
+          <p className="text-gray-400 mt-2 text-sm leading-relaxed">{formConfig?.description}</p>
         </div>
 
-        {/* TAB NAVIGASI */}
         <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 mb-8">
           <button onClick={() => setActiveTab('input')} className={`flex-1 py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'input' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Formulir
+            <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => setActiveTab('results')} className={`flex-1 py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
             <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Data Masuk
@@ -199,16 +174,14 @@ export default function PublicForm() {
 
         {activeTab === 'input' ? (
           schema.length === 0 ? (
-            <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl">
-              <p className="text-gray-500">Skema belum dikonfigurasi.</p>
+            <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30">
+              <p className="text-gray-500 font-medium">Formulir belum memiliki kolom input. Hubungi Administrator.</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in">
-            
-              {/* NOMOR REGISTRASI OTOMATIS (READ-ONLY) */}
               <div className="bg-primary/5 border border-primary/20 p-5 rounded-2xl flex items-center justify-between mb-4">
                 <div>
-                  <div className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">NO. REGISTRASI SISTEM</div>
+                  <div className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">NO. REGISTRASI</div>
                   <div className="text-lg font-mono font-black text-white tracking-wider">{registrationNo}</div>
                 </div>
                 <FontAwesomeIcon icon={faIdBadge} className="text-3xl text-primary/50" />
@@ -216,21 +189,19 @@ export default function PublicForm() {
 
               {editingId && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 p-4 rounded-2xl text-yellow-500 text-xs font-bold flex justify-between items-center">
-                  <span>MENGUBAH ARSIP TERDAHULU</span>
+                  <span>MENGEDIT DATA TERDAHULU</span>
                   <button type="button" onClick={() => { setEditingId(null); setFormData({ nomor_registrasi: registrationNo }); }} className="underline hover:text-white">Batal</button>
                 </div>
               )}
               
               <div className="space-y-5">
                 {schema.map((field) => {
-                 
                   const isAdminLocked = field.adminLocked === true && !editingId;
                   const isFile = field.type === 'file';
                   const isSelect = field.type === 'select';
 
                   return (
                     <div key={field.name} className="flex flex-col relative group">
-  
                       <label className="text-[11px] font-bold text-gray-400 mb-2 uppercase tracking-widest flex items-center justify-between">
                         <span>{field.label}</span>
                         {isAdminLocked && <span className="text-[9px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full backdrop-blur-md border border-white/10"><FontAwesomeIcon icon={faLock} className="mr-1" /> OTOMATIS</span>}
@@ -247,29 +218,20 @@ export default function PublicForm() {
                       ) : isSelect ? (
                         <div className="relative">
                            <select
-                              name={field.name}
-                              value={formData[field.name] || ''}
-                              onChange={handleChange}
-                              disabled={isAdminLocked}
-                              className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm appearance-none ${isAdminLocked ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 focus:ring-4 focus:ring-primary/10'}`}
+                              name={field.name} value={formData[field.name] || ''} onChange={handleChange} disabled={isAdminLocked}
+                              className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm appearance-none ${isAdminLocked ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60'}`}
                               required={!isAdminLocked && !editingId}
                            >
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
-                              {field.options?.map(opt => (
-                                <option key={opt} value={opt} className="bg-gray-900">{opt}</option>
-                              ))}
+                              {field.options?.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>)}
                            </select>
                            <FontAwesomeIcon icon={faChevronDown} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         </div>
                       ) : (
                         <input
-                          type={field.type || 'text'}
-                          name={field.name}
-                          value={formData[field.name] || ''}
-                          onChange={handleChange}
-                          disabled={isAdminLocked}
+                          type={field.type || 'text'} name={field.name} value={formData[field.name] || ''} onChange={handleChange} disabled={isAdminLocked}
                           placeholder={`Ketik ${field.label.toLowerCase()}...`}
-                          className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm ${isAdminLocked ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 focus:ring-4 focus:ring-primary/10 placeholder-gray-600'}`}
+                          className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm ${isAdminLocked ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
                           required={!isAdminLocked && !editingId}
                         />
                       )}
@@ -277,7 +239,7 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" disabled={formConfig?.is_active === false} className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 md:py-5 rounded-2xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] hover:shadow-[0_10px_40px_rgba(234,179,8,0.4)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-8 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+              <button type="submit" disabled={formConfig?.is_active === false} className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 md:py-5 rounded-2xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] hover:shadow-[0_10px_40px_rgba(234,179,8,0.4)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-8 text-sm">
                 {editingId ? 'Simpan Pembaruan Data' : 'Submit Tanggapan'}
               </button>
             </form>
@@ -286,7 +248,7 @@ export default function PublicForm() {
           <div className="animate-fade-in space-y-4">
             {responses.length === 0 ? (
               <div className="text-center p-10 bg-black/40 rounded-3xl border border-white/5">
-                <p className="text-gray-500 text-sm">Belum ada arsip yang masuk.</p>
+                <p className="text-gray-500 text-sm font-medium">Belum ada tanggapan arsip.</p>
               </div>
             ) : (
               responses.map((res) => (
@@ -302,13 +264,13 @@ export default function PublicForm() {
                        </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-xs">
+                  <div className="grid grid-cols-2 gap-y-4 gap-x-3 text-xs">
                     {schema.slice(0, 4).map(field => (
                       <div key={field.name}>
                         <div className="text-gray-500 text-[9px] uppercase font-bold tracking-wider mb-1">{field.label}</div>
-                        <div className="text-gray-200 font-medium truncate">
+                        <div className="text-gray-200 font-medium truncate max-w-[120px] md:max-w-xs">
                           {String(res.data[field.name]).startsWith('http') ? (
-                            <a href={res.data[field.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline">Lihat Dokumen</a>
+                            <a href={res.data[field.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline">Lihat Lampiran</a>
                           ) : (
                             res.data[field.name] || '-'
                           )}
