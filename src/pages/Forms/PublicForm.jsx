@@ -72,6 +72,17 @@ export default function PublicForm() {
     const toastId = toast.loading('Memproses enkripsi data...');
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
+    // ==========================================
+    // AUTO-NUMBER INJECTION SEBELUM DISIMPAN
+    // ==========================================
+    schema.forEach(col => {
+      const colNameLower = col.name.toLowerCase();
+      const colLabelLower = col.label.toLowerCase();
+      if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') {
+        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
+      }
+    });
+
     try {
       // PROSES UPLOAD GOOGLE DRIVE
       for (const key in finalData) {
@@ -196,7 +207,15 @@ export default function PublicForm() {
               
               <div className="space-y-5">
                 {schema.map((field) => {
+                  const colNameLower = field.name.toLowerCase();
+                  const colLabelLower = field.label.toLowerCase();
+                  
+                  // DETEKSI AUTO NUMBER
+                  const isNoColumn = colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor';
+
                   const isAdminLocked = field.adminLocked === true && !editingId;
+                  const finalLockedStatus = isAdminLocked || isNoColumn;
+
                   const isFile = field.type === 'file';
                   const isSelect = field.type === 'select';
 
@@ -204,13 +223,17 @@ export default function PublicForm() {
                     <div key={field.name} className="flex flex-col relative group">
                       <label className="text-[11px] font-bold text-gray-400 mb-2 uppercase tracking-widest flex items-center justify-between">
                         <span>{field.label}</span>
-                        {isAdminLocked && <span className="text-[9px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full backdrop-blur-md border border-white/10"><FontAwesomeIcon icon={faLock} className="mr-1" /> OTOMATIS</span>}
+                        {finalLockedStatus && (
+                          <span className="text-[9px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full backdrop-blur-md border border-white/10">
+                            <FontAwesomeIcon icon={faLock} className="mr-1" /> {isNoColumn ? 'SISTEM' : 'OTOMATIS'}
+                          </span>
+                        )}
                       </label>
                       
                       {isFile ? (
                         <div className="relative">
-                          <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={isAdminLocked} className="hidden" id={`file-${field.name}`}/>
-                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-5 rounded-2xl border border-dashed transition-all duration-300 cursor-pointer ${isAdminLocked ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                          <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={finalLockedStatus} className="hidden" id={`file-${field.name}`}/>
+                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-5 rounded-2xl border border-dashed transition-all duration-300 cursor-pointer ${finalLockedStatus ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-lg" />
                             <span className="font-semibold text-sm truncate">{formData[field.name]?.fileName || formData[field.name] || 'Pilih Lampiran Berkas...'}</span>
                           </label>
@@ -218,9 +241,9 @@ export default function PublicForm() {
                       ) : isSelect ? (
                         <div className="relative">
                            <select
-                              name={field.name} value={formData[field.name] || ''} onChange={handleChange} disabled={isAdminLocked}
-                              className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm appearance-none ${isAdminLocked ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60'}`}
-                              required={!isAdminLocked && !editingId}
+                              name={field.name} value={formData[field.name] || ''} onChange={handleChange} disabled={finalLockedStatus}
+                              className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm appearance-none ${finalLockedStatus ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60'}`}
+                              required={!finalLockedStatus && !editingId}
                            >
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {field.options?.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>)}
@@ -229,17 +252,20 @@ export default function PublicForm() {
                         </div>
                       ) : (
                         <input
-                          type={field.type || 'text'} name={field.name} value={formData[field.name] || ''} onChange={handleChange} disabled={isAdminLocked}
+                          type={field.type || 'text'} name={field.name} 
+                          // Inject nilai otomatis jika ini kolom "NO"
+                          value={isNoColumn && !editingId ? (responses.length + 1) : (formData[field.name] || '')} 
+                          onChange={handleChange} disabled={finalLockedStatus}
                           placeholder={`Ketik ${field.label.toLowerCase()}...`}
-                          className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm ${isAdminLocked ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
-                          required={!isAdminLocked && !editingId}
+                          className={`w-full p-4 rounded-2xl border outline-none transition-all duration-300 text-sm ${finalLockedStatus ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
+                          required={!finalLockedStatus && !editingId}
                         />
                       )}
                     </div>
                   );
                 })}
               </div>
-              <button type="submit" disabled={formConfig?.is_active === false} className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 md:py-5 rounded-2xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] hover:shadow-[0_10px_40px_rgba(234,179,8,0.4)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-8 text-sm">
+              <button type="submit" disabled={formConfig?.is_active === false} className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 md:py-5 rounded-2xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] hover:shadow-[0_10px_40px_rgba(234,179,8,0.4)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-8 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
                 {editingId ? 'Simpan Pembaruan Data' : 'Submit Tanggapan'}
               </button>
             </form>
