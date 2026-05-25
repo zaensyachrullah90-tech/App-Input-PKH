@@ -15,21 +15,29 @@ export default function SmartForm({ userProfile }) {
   
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
-  useEffect(() => { fetchFormSetup(); }, [formId]);
+  useEffect(() => { 
+    if (formId) fetchFormSetup(); 
+  }, [formId]);
 
   const fetchFormSetup = async () => {
-    const { data: form } = await supabase.from('forms').select('*').eq('id', formId).single();
-    if (form) {
-      setFormConfig(form);
-      setSchema(form.schema || []); 
-      
-      const initialData = {};
-      (form.schema || []).forEach(field => {
-        if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase();
-      });
-      setFormData(initialData);
+    if (!formId) return;
+    try {
+      const { data: form } = await supabase.from('forms').select('*').eq('id', formId).single();
+      if (form) {
+        setFormConfig(form);
+        setSchema(form.schema || []); 
+        
+        const initialData = {};
+        (form.schema || []).forEach(field => {
+          if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase();
+        });
+        setFormData(initialData);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const formatRupiah = (angka) => {
@@ -66,11 +74,13 @@ export default function SmartForm({ userProfile }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formId) return;
+    
     const toastId = toast.loading('Menyimpan Berkas...');
     let finalData = { ...formData };
 
     try {
-      // UPLOAD FILE
+      // UPLOAD FILE GOOGLE DRIVE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
           toast.loading(`Menaikkan berkas...`, { id: toastId });
@@ -87,12 +97,13 @@ export default function SmartForm({ userProfile }) {
 
       toast.loading('Menyimpan ke Database...', { id: toastId });
       
+      // INSERT MURNI (TANPA UPSERT ONCONFLICT MENGHINDARI ERROR 400)
       const { error: dbError } = await supabase.from('form_responses').insert([{ 
-          form_id: formId, user_id: userProfile.id, data: finalData, kabupaten: 'Admin'
+          form_id: formId, user_id: userProfile?.id || null, data: finalData, kabupaten: 'Admin'
       }]);
       if (dbError) throw dbError;
 
-      // SYNC SPREADSHEET DENGAN AWAIT LOCK
+      // SYNC SPREADSHEET
       if (formConfig?.spreadsheet_id) {
         toast.loading('Sinkronisasi Google Sheets...', { id: toastId });
         try {
@@ -100,12 +111,14 @@ export default function SmartForm({ userProfile }) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
           });
-        } catch(e) { console.error('Sync Error', e); }
+        } catch(e) {}
       }
 
       toast.success('Arsip Berhasil Diamankan!', { id: toastId });
-      setFormData({});
-    } catch (err) { toast.error('Gagal menyimpan.', { id: toastId }); }
+      fetchFormSetup(); // Reset Form
+    } catch (err) { 
+      toast.error('Gagal menyimpan.', { id: toastId }); 
+    }
   };
 
   if (loading) return <div className="flex justify-center h-64"><FontAwesomeIcon icon={faSpinner} spin size="3x" className="text-primary mt-20" /></div>;
