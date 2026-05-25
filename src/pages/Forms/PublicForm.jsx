@@ -84,7 +84,7 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     
-    const toastId = toast.loading('Memproses data...');
+    const toastId = toast.loading('Memproses enkripsi data...');
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
@@ -94,9 +94,10 @@ export default function PublicForm() {
     });
 
     try {
+      // 1. PROSES UPLOAD FILE KE GOOGLE DRIVE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
-          toast.loading(`Mengunggah berkas...`, { id: toastId });
+          toast.loading(`Mengunggah berkas ${finalData[key].fileName}...`, { id: toastId });
           try {
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -108,22 +109,29 @@ export default function PublicForm() {
         }
       }
 
-      toast.loading('Menyimpan...', { id: toastId });
+      toast.loading('Menyimpan ke Pusat Database...', { id: toastId });
 
+      // 2. SIMPAN KE SUPABASE (DATABASE UTAMA)
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
       } else {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: 'Publik' }]);
       }
 
+      // 3. KUNCI SINKRONISASI GOOGLE SPREADSHEET (MENCEGAH PUTUS KONEKSI)
       if (formConfig?.spreadsheet_id && !editingId) {
-        fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        }).catch(()=>{});
+        toast.loading('Meneruskan data ke Cloud Spreadsheet...', { id: toastId });
+        try {
+          await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
+          });
+        } catch(syncError) {
+          console.error("Google Sync Failed:", syncError);
+        }
       }
 
-      toast.success('Perekaman Berhasil Terkirim!', { id: toastId });
+      toast.success('Perekaman Berhasil Terkirim Sepenuhnya!', { id: toastId });
       
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
@@ -134,7 +142,9 @@ export default function PublicForm() {
       setEditingId(null);
       fetchResponses();
       setActiveTab('results');
-    } catch (err) { toast.error('Gagal mengirim tanggapan.', { id: toastId }); }
+    } catch (err) { 
+      toast.error('Gagal mengirim tanggapan.', { id: toastId }); 
+    }
   };
 
   const handleEdit = (responseItem) => {
@@ -188,7 +198,7 @@ export default function PublicForm() {
                 <div key={field.name} className="flex flex-col relative group">
                   <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
                     <span>{field.label}</span>
-                    {isLockedState && <span className="text-[8px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faLock} /> KUNCI</span>}
+                    {isLockedState && <span className="text-[8px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faLock} /> KUNCI SISTEM</span>}
                   </label>
 
                   {isFile ? (
@@ -234,7 +244,7 @@ export default function PublicForm() {
                   <div className="font-bold text-gray-200 uppercase">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
                   <div className="text-[10px] text-gray-500 font-mono mt-1">{new Date(res.created_at).toLocaleString('id-ID')}</div>
                 </div>
-                <button onClick={() => { setFormData(res.data); setEditingId(res.id); setActiveTab('input'); }} className="px-3 py-1.5 bg-white text-black font-bold uppercase rounded text-[10px]"><FontAwesomeIcon icon={faEdit} /> Edit</button>
+                <button onClick={() => handleEdit(res)} className="px-3 py-1.5 bg-white text-black font-bold uppercase rounded text-[10px]"><FontAwesomeIcon icon={faEdit} /> Edit</button>
               </div>
             ))}
           </div>
