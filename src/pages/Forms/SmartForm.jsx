@@ -70,27 +70,37 @@ export default function SmartForm({ userProfile }) {
     let finalData = { ...formData };
 
     try {
+      // UPLOAD FILE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
-          const res = await fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
-          });
-          const driveData = await res.json();
-          finalData[key] = driveData.link || 'Gagal';
+          toast.loading(`Menaikkan berkas...`, { id: toastId });
+          try {
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
+            });
+            const driveData = await res.json();
+            finalData[key] = driveData.link || 'Gagal';
+          } catch(e) { finalData[key] = 'Gagal'; }
         }
       }
 
+      toast.loading('Menyimpan ke Database...', { id: toastId });
+      
       const { error: dbError } = await supabase.from('form_responses').insert([{ 
           form_id: formId, user_id: userProfile.id, data: finalData, kabupaten: 'Admin'
       }]);
       if (dbError) throw dbError;
 
+      // SYNC SPREADSHEET DENGAN AWAIT LOCK
       if (formConfig?.spreadsheet_id) {
-        fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        }).catch(()=>{});
+        toast.loading('Sinkronisasi Google Sheets...', { id: toastId });
+        try {
+          await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
+          });
+        } catch(e) { console.error('Sync Error', e); }
       }
 
       toast.success('Arsip Berhasil Diamankan!', { id: toastId });
