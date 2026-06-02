@@ -11,13 +11,22 @@ export default function Responses() {
   const [loading, setLoading] = useState(true);
   const [activeSchema, setActiveSchema] = useState([]);
 
+  // STATE UNTUK CONFIG METADATA PENANDATANGAN LAPORAN
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMeta, setExportMeta] = useState({
-    noSurat: '', jabatan: 'KEPALA INSTANSI', nama: '', nik: ''
+    noSurat: '',
+    jabatan: 'KEPALA INSTANSI',
+    nama: '',
+    nik: ''
   });
 
-  useEffect(() => { fetchForms(); }, []);
-  useEffect(() => { if (selectedFormId) fetchResponses(selectedFormId); }, [selectedFormId]);
+  useEffect(() => {
+    fetchForms();
+  }, []);
+
+  useEffect(() => {
+    if (selectedFormId) fetchResponses(selectedFormId);
+  }, [selectedFormId]);
 
   const fetchForms = async () => {
     const { data } = await supabase.from('forms').select('*').order('created_at', { ascending: false });
@@ -33,38 +42,52 @@ export default function Responses() {
     const formConfig = forms.find(f => f.id === formId);
     if (formConfig) setActiveSchema(formConfig.schema || []);
 
-    const { data } = await supabase.from('form_responses').select('*, forms(title)').eq('form_id', formId).order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('form_responses')
+      .select('*, forms(title)')
+      .eq('form_id', formId)
+      .order('created_at', { ascending: false });
+      
     if (data) setResponses(data);
     setLoading(false);
   };
 
+  // ========================================================
+  // METODE 1: EKSPOR EXCEL (.CSV FORMAT MINIMALIS LAMPIRAN)
+  // ========================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Tidak ada arsip data untuk diekspor.');
-    const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'Data_Export';
+    const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
+    // Metadata Kop Lampiran Sesuai Permintaan (Tanpa Judul Besar Instansi)
     const headerMetadata = [
-      ['LAMPIRAN LAPORAN RESMI'],
-      ['NOMOR SURAT', `="${exportMeta.noSurat.toUpperCase()}"`],
-      ['PERIHAL', `="LAPORAN DATA ${formTitle.toUpperCase()}"`],
-      ['TANGGAL CETAK', `="${new Date().toLocaleDateString('id-ID')}"`],
-      [] 
+      ['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`],
+      ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`],
+      [] // Baris kosong pembatas
     ];
 
-    const tableHeaders = ['Waktu Masuk', 'No. Registrasi Sistem', ...activeSchema.map(col => col.label)];
+    // Header Tabel Bersih (Tanpa Waktu Masuk & Tanpa Registrasi)
+    const tableHeaders = activeSchema.map(col => col.label);
     const reversedResponses = [...responses].reverse();
 
+    // Isi Baris Data Berdasarkan Skema BNBA Anda
     const csvData = reversedResponses.map((res, index) => {
-      const row = [new Date(res.created_at).toLocaleString('id-ID'), res.data.nomor_registrasi || '-'];
+      const row = [];
+
       activeSchema.forEach(col => {
         const colNameLower = col.name.toLowerCase();
         const colLabelLower = col.label.toLowerCase();
+        
+        // Logika Auto-Numbering untuk Kolom NO/NOMOR
         if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') {
           row.push(index + 1);
         } else {
           let cellValue = res.data[col.name] || '-';
           if (typeof cellValue === 'string') {
             cellValue = cellValue.replace(/"/g, '""');
-            if (cellValue.includes(',') || cellValue.includes('\n')) cellValue = `"${cellValue}"`;
+            if (cellValue.includes(',') || cellValue.includes('\n')) {
+              cellValue = `"${cellValue}"`;
+            }
           }
           row.push(cellValue);
         }
@@ -72,17 +95,24 @@ export default function Responses() {
       return row;
     });
 
+    // Blok Tanda Tangan Footer Terdorong ke Kanan Layar Excel
     const emptyPadding = Array(Math.max(1, tableHeaders.length - 2)).fill(''); 
     const footerMetadata = [
       [], [], 
-      [...emptyPadding, 'Mengetahui,'],
+      [...emptyPadding, 'MENGETAHUI,'],
       [...emptyPadding, `="${exportMeta.jabatan.toUpperCase()}"`],
       [], [], [], 
       [...emptyPadding, `="${exportMeta.nama.toUpperCase()}"`],
       [...emptyPadding, `="NIK/NIP. ${exportMeta.nik}"`]
     ];
 
-    const csvContent = [...headerMetadata.map(e => e.join(',')), tableHeaders.join(','), ...csvData.map(e => e.join(',')), ...footerMetadata.map(e => e.join(','))].join('\n');
+    const csvContent = [
+      ...headerMetadata.map(e => e.join(',')),
+      tableHeaders.join(','), 
+      ...csvData.map(e => e.join(',')),
+      ...footerMetadata.map(e => e.join(','))
+    ].join('\n');
+
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -93,62 +123,76 @@ export default function Responses() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Berkas Excel resmi berhasil diunduh!');
+    toast.success('Berkas Excel Lampiran berhasil diunduh!');
     setShowExportModal(false);
   };
 
+  // ========================================================
+  // METODE 2: EKSPOR/CETAK PDF (FORMAT LANSKAP MINIMALIS)
+  // ========================================================
   const handleExportPDF = () => {
     if (responses.length === 0) return toast.error('Tidak ada data untuk dicetak.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
+
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    const tableHeadersHTML = `<th>Waktu Masuk</th><th>No. Registrasi</th>${activeSchema.map(col => `<th>${col.label}</th>`).join('')}`;
+    // Render Header Dinamis Berdasarkan Struktur Skema
+    const tableHeadersHTML = activeSchema.map(col => `<th>${col.label}</th>`).join('');
+
+    // Isi Data Baris PDF Tanpa Kolom Waktu dan Registrasi
     const tableRowsHTML = reversedResponses.map((res, index) => {
-      return `<tr>
-          <td>${new Date(res.created_at).toLocaleString('id-ID')}</td>
-          <td><strong>${res.data.nomor_registrasi || '-'}</strong></td>
+      return `
+        <tr>
           ${activeSchema.map(col => {
             const colNameLower = col.name.toLowerCase();
             const colLabelLower = col.label.toLowerCase();
             let val = res.data[col.name] || '-';
-            if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') val = index + 1;
+            
+            // Auto Numbering Skema
+            if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') {
+              val = index + 1;
+            }
             return `<td>${val}</td>`;
           }).join('')}
-        </tr>`;
+        </tr>
+      `;
     }).join('');
 
     printWindow.document.write(`
       <html>
       <head>
-        <title>Lampiran Laporan - ${formTitle}</title>
+        <title>Lampiran - ${formTitle}</title>
         <style>
-          body { font-family: 'Arial', sans-serif; color: #000; padding: 30px; line-height: 1.5; background: #fff; }
-          .kop-surat { text-align: center; border-bottom: 3px double #000; padding-bottom: 12px; margin-bottom: 25px; }
-          .kop-surat h1 { margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
-          .kop-surat p { margin: 4px 0 0 0; font-size: 12px; color: #333; }
+          body { font-family: 'Arial', sans-serif; color: #000; padding: 20px; line-height: 1.4; background: #fff; }
+          
+          /* METADATA ATAS SESUAI PERMINTAAN (MINIMALIS) */
           .meta-info { margin-bottom: 20px; font-size: 13px; }
           .meta-info table { width: auto; border: none; margin: 0; }
-          .meta-info td { padding: 3px 8px 3px 0; border: none; font-weight: bold; text-transform: uppercase; }
-          table.data-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+          .meta-info td { padding: 4px 10px 4px 0; border: none; font-weight: bold; text-transform: uppercase; }
+          
+          /* STRUKTUR TABEL DATA LANSKAP */
+          table.data-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }
           table.data-table th { background: #f3f4f6; border: 1px solid #000; padding: 8px; text-align: left; text-transform: uppercase; font-weight: bold; }
-          table.data-table td { border: 1px solid #000; padding: 7px; }
-          .ttd-block { margin-top: 45px; float: right; text-align: left; min-width: 240px; font-size: 13px; page-break-inside: avoid; }
-          .ttd-space { height: 75px; }
+          table.data-table td { border: 1px solid #000; padding: 7px; text-transform: uppercase; }
+          
+          /* FOOTER BLOK TANDA TANGAN */
+          .ttd-block { margin-top: 40px; float: right; text-align: left; min-width: 260px; font-size: 13px; page-break-inside: avoid; }
+          .ttd-space { height: 70px; }
           .clear { clear: both; }
-          @media print { body { padding: 0; } @page { size: A4 portrait; margin: 15mm; } }
+          
+          /* SUNTIKAN ROUTING CETAK LANDSCAPE DAN MARGIN AREA */
+          @media print {
+            body { padding: 0; }
+            @page { size: A4 landscape; margin: 12mm; }
+          }
         </style>
       </head>
       <body>
-        <div class="kop-surat">
-          <h1>LAMPIRAN DOKUMEN LAPORAN RESMI PERKANTORAN</h1>
-          <p>Sistem Pengolahan Data Otomatis Terintegrasi Cloud & AI Environment</p>
-        </div>
         <div class="meta-info">
           <table>
-            <tr><td>NOMOR SURAT</td><td>: ${exportMeta.noSurat.toUpperCase() || '-'}</td></tr>
-            <tr><td>PERIHAL</td><td>: LAPORAN REKAP DATA ${formTitle.toUpperCase()}</td></tr>
-            <tr><td>TANGGAL CETAK</td><td>: ${new Date().toLocaleDateString('id-ID')}</td></tr>
+            <tr><td>LAMPIRAN NOMOR</td><td>: ${exportMeta.noSurat.toUpperCase() || '-'}</td></tr>
+            <tr><td>PERIHAL</td><td>: DATA ${formTitle.toUpperCase()}</td></tr>
           </table>
         </div>
         <table class="data-table">
@@ -156,19 +200,20 @@ export default function Responses() {
           <tbody>${tableRowsHTML}</tbody>
         </table>
         <div class="ttd-block">
-          <div>Mengetahui,</div>
+          <div>MENGETAHUI,</div>
           <div style="font-weight: bold; text-transform: uppercase; margin-top: 2px;">${exportMeta.jabatan}</div>
           <div class="ttd-space"></div>
           <div style="font-weight: bold; text-decoration: underline; text-transform: uppercase;">${exportMeta.nama || '-'}</div>
           <div>NIK/NIP. ${exportMeta.nik || '-'}</div>
         </div>
         <div class="clear"></div>
-        <script>window.onload = function() { window.print(); setTimeout(function(){ window.close(); }, 500); }</script>
+        <script>
+          window.onload = function() { window.print(); setTimeout(function(){ window.close(); }, 500); }
+        </script>
       </body>
       </html>
     `);
     printWindow.document.close();
-    toast.success('Dokumen Laporan PDF siap dicetak!');
     setShowExportModal(false);
   };
 
@@ -176,50 +221,52 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }} />
       
+      {/* MODAL CETAK EXCEL / PDF */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-darker border border-gray-700 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
             <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
-            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Cetak Laporan Instansi</h3>
-            <p className="text-gray-400 text-xs mb-6 border-b border-gray-800 pb-4">Lengkapi data otentikasi di bawah ini untuk mengunduh laporan resmi.</p>
+            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Konfigurasi Lampiran</h3>
+            <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Masukkan data surat penandatangan untuk dicetak ke dalam format berkas lampiran.</p>
             
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nomor Surat / Lampiran</label>
-                <input type="text" value={exportMeta.noSurat} onChange={e => setExportMeta({...exportMeta, noSurat: e.target.value})} placeholder="Cth: 045.2/PKH-TAPIN/2026" className="w-full p-3.5 rounded-xl bg-dark/80 border border-gray-600 text-white text-sm outline-none focus:border-primary" />
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nomor Lampiran Surat</label>
+                <input type="text" value={exportMeta.noSurat} onChange={e => setExportMeta({...exportMeta, noSurat: e.target.value})} placeholder="Cth: 045.2/PKH-TAPIN/2026" className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Jabatan Penandatangan</label>
-                <input type="text" value={exportMeta.jabatan} onChange={e => setExportMeta({...exportMeta, jabatan: e.target.value})} className="w-full p-3.5 rounded-xl bg-dark/80 border border-gray-600 text-white text-sm outline-none focus:border-primary" />
+                <input type="text" value={exportMeta.jabatan} onChange={e => setExportMeta({...exportMeta, jabatan: e.target.value.toUpperCase()})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nama Lengkap Penandatangan</label>
-                <input type="text" value={exportMeta.nama} onChange={e => setExportMeta({...exportMeta, nama: e.target.value})} placeholder="Nama beserta gelar lengkap..." className="w-full p-3.5 rounded-xl bg-dark/80 border border-gray-600 text-white text-sm outline-none focus:border-primary" />
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nama Lengkap</label>
+                <input type="text" value={exportMeta.nama} onChange={e => setExportMeta({...exportMeta, nama: e.target.value.toUpperCase()})} placeholder="Nama beserta gelar..." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">NIK / NIP Nomer Pegawai</label>
-                <input type="number" value={exportMeta.nik} onChange={e => setExportMeta({...exportMeta, nik: e.target.value})} placeholder="Masukkan NIK/NIP..." className="w-full p-3.5 rounded-xl bg-dark/80 border border-gray-600 text-white text-sm outline-none focus:border-primary" />
+                <input type="number" value={exportMeta.nik} onChange={e => setExportMeta({...exportMeta, nik: e.target.value})} placeholder="Masukkan NIK/NIP..." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mt-8">
               <button onClick={handleExportExcel} className="p-4 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all">
-                <FontAwesomeIcon icon={faFileExcel} size="lg" /> Simpan Excel
+                <FontAwesomeIcon icon={faFileExcel} size="lg" /> Export Excel
               </button>
               <button onClick={handleExportPDF} className="p-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all">
-                <FontAwesomeIcon icon={faFilePdf} size="lg" /> Cetak PDF
+                <FontAwesomeIcon icon={faFilePdf} size="lg" /> Export PDF
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* HEADER DESKTOP MONITOR PANEL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center">
             <FontAwesomeIcon icon={faDatabase} className="mr-3 text-primary" /> Executive Data Table
           </h2>
-          <p className="text-gray-400 mt-1 text-xs md:text-sm">Monitoring basis data seluruh tanggapan masuk beserta opsi cetak laporan perkantoran.</p>
+          <p className="text-gray-400 mt-1 text-xs md:text-sm">Monitoring basis data dan penataan berkas cetak lampiran kerja.</p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
@@ -230,7 +277,7 @@ export default function Responses() {
               onChange={(e) => setSelectedFormId(e.target.value)}
               className="p-1.5 bg-transparent text-white focus:outline-none text-xs md:text-sm font-bold w-full sm:w-48"
             >
-              {forms.map(f => <option key={f.id} value={f.id} className="bg-darker">{f.title.toUpperCase()}</option>)}
+              {forms.map(f => <option key={f.id} value={f.id} className="bg-[#0f172a]">{f.title.toUpperCase()}</option>)}
             </select>
           </div>
           <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center shadow-lg">
@@ -239,6 +286,7 @@ export default function Responses() {
         </div>
       </div>
       
+      {/* TAMPILAN MONITORING TABEL INTERNAL DI DASHBOARD */}
       <div className="bg-darker rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs md:text-sm whitespace-nowrap">
