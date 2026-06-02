@@ -11,13 +11,19 @@ export default function Responses() {
   const [loading, setLoading] = useState(true);
   const [activeSchema, setActiveSchema] = useState([]);
 
-  // STATE UNTUK CONFIG METADATA PENANDATANGAN LAPORAN
   const [showExportModal, setShowExportModal] = useState(false);
-  const [exportMeta, setExportMeta] = useState({
-    noSurat: '',
-    jabatan: 'KEPALA INSTANSI',
-    nama: '',
-    nik: ''
+  
+  // ========================================================
+  // PERBARUAN: INISIALISASI STATE MENGGUNAKAN SMART CACHE STORAGE
+  // ========================================================
+  const [exportMeta, setExportMeta] = useState(() => {
+    const cachedMeta = localStorage.getItem('smart_export_meta_cache');
+    return cachedMeta ? JSON.parse(cachedMeta) : {
+      noSurat: '',
+      jabatan: 'Koordinator Kabupaten PKH',
+      nama: '',
+      nik: ''
+    };
   });
 
   useEffect(() => {
@@ -52,6 +58,13 @@ export default function Responses() {
     setLoading(false);
   };
 
+  // Kunci memori cache setiap kali ada perubahan data input di modal oleh Admin
+  const handleMetaChange = (key, value) => {
+    const updatedMeta = { ...exportMeta, [key]: value };
+    setExportMeta(updatedMeta);
+    localStorage.setItem('smart_export_meta_cache', JSON.stringify(updatedMeta));
+  };
+
   // ========================================================
   // METODE 1: EKSPOR EXCEL (.CSV FORMAT MINIMALIS LAMPIRAN)
   // ========================================================
@@ -59,26 +72,22 @@ export default function Responses() {
     if (responses.length === 0) return toast.error('Tidak ada arsip data untuk diekspor.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
-    // Metadata Kop Lampiran Sesuai Permintaan (Tanpa Judul Besar Instansi)
+    // Metadata Kop Lampiran Bersih Tanpa Keterangan Jam/Waktu Cetak
     const headerMetadata = [
       ['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`],
       ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`],
-      [] // Baris kosong pembatas
+      [] 
     ];
 
-    // Header Tabel Bersih (Tanpa Waktu Masuk & Tanpa Registrasi)
     const tableHeaders = activeSchema.map(col => col.label);
     const reversedResponses = [...responses].reverse();
 
-    // Isi Baris Data Berdasarkan Skema BNBA Anda
     const csvData = reversedResponses.map((res, index) => {
       const row = [];
-
       activeSchema.forEach(col => {
         const colNameLower = col.name.toLowerCase();
         const colLabelLower = col.label.toLowerCase();
         
-        // Logika Auto-Numbering untuk Kolom NO/NOMOR
         if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') {
           row.push(index + 1);
         } else {
@@ -95,14 +104,14 @@ export default function Responses() {
       return row;
     });
 
-    // Blok Tanda Tangan Footer Terdorong ke Kanan Layar Excel
+    // PERBARUAN: Mengilangkan pemaksaan kapital (.toUpperCase()) pada Nama dan Jabatan
     const emptyPadding = Array(Math.max(1, tableHeaders.length - 2)).fill(''); 
     const footerMetadata = [
       [], [], 
       [...emptyPadding, 'MENGETAHUI,'],
-      [...emptyPadding, `="${exportMeta.jabatan.toUpperCase()}"`],
+      [...emptyPadding, `="${exportMeta.jabatan}"`],
       [], [], [], 
-      [...emptyPadding, `="${exportMeta.nama.toUpperCase()}"`],
+      [...emptyPadding, `="${exportMeta.nama}"`],
       [...emptyPadding, `="NIK/NIP. ${exportMeta.nik}"`]
     ];
 
@@ -128,7 +137,7 @@ export default function Responses() {
   };
 
   // ========================================================
-  // METODE 2: EKSPOR/CETAK PDF (FORMAT LANSKAP MINIMALIS)
+  // METODE 2: EKSPOR/CETAK PDF (FORMAT LANSKAP MINIMALIS BERSIH)
   // ========================================================
   const handleExportPDF = () => {
     if (responses.length === 0) return toast.error('Tidak ada data untuk dicetak.');
@@ -137,10 +146,8 @@ export default function Responses() {
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    // Render Header Dinamis Berdasarkan Struktur Skema
     const tableHeadersHTML = activeSchema.map(col => `<th>${col.label}</th>`).join('');
 
-    // Isi Data Baris PDF Tanpa Kolom Waktu dan Registrasi
     const tableRowsHTML = reversedResponses.map((res, index) => {
       return `
         <tr>
@@ -149,7 +156,6 @@ export default function Responses() {
             const colLabelLower = col.label.toLowerCase();
             let val = res.data[col.name] || '-';
             
-            // Auto Numbering Skema
             if (colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor') {
               val = index + 1;
             }
@@ -159,33 +165,27 @@ export default function Responses() {
       `;
     }).join('');
 
+    // PERBARUAN: Mencabut aturan text-transform: uppercase pada style ttd-block nama dan jabatan agar mixed case
     printWindow.document.write(`
       <html>
       <head>
-        <title>Lampiran - ${formTitle}</title>
+        <title></title> 
         <style>
-          body { font-family: 'Arial', sans-serif; color: #000; padding: 20px; line-height: 1.4; background: #fff; }
-          
-          /* METADATA ATAS SESUAI PERMINTAAN (MINIMALIS) */
+          @page {
+            size: landscape;
+            margin: 12mm 15mm;
+          }
+          body { font-family: 'Arial', sans-serif; color: #000; padding: 0; margin: 0; line-height: 1.4; background: #fff; }
           .meta-info { margin-bottom: 20px; font-size: 13px; }
           .meta-info table { width: auto; border: none; margin: 0; }
           .meta-info td { padding: 4px 10px 4px 0; border: none; font-weight: bold; text-transform: uppercase; }
-          
-          /* STRUKTUR TABEL DATA LANSKAP */
           table.data-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }
           table.data-table th { background: #f3f4f6; border: 1px solid #000; padding: 8px; text-align: left; text-transform: uppercase; font-weight: bold; }
           table.data-table td { border: 1px solid #000; padding: 7px; text-transform: uppercase; }
-          
-          /* FOOTER BLOK TANDA TANGAN */
           .ttd-block { margin-top: 40px; float: right; text-align: left; min-width: 260px; font-size: 13px; page-break-inside: avoid; }
           .ttd-space { height: 70px; }
           .clear { clear: both; }
-          
-          /* SUNTIKAN ROUTING CETAK LANDSCAPE DAN MARGIN AREA */
-          @media print {
-            body { padding: 0; }
-            @page { size: A4 landscape; margin: 12mm; }
-          }
+          @media print { body { padding: 0; margin: 0; } }
         </style>
       </head>
       <body>
@@ -201,9 +201,9 @@ export default function Responses() {
         </table>
         <div class="ttd-block">
           <div>MENGETAHUI,</div>
-          <div style="font-weight: bold; text-transform: uppercase; margin-top: 2px;">${exportMeta.jabatan}</div>
+          <div style="font-weight: bold; margin-top: 2px;">${exportMeta.jabatan}</div>
           <div class="ttd-space"></div>
-          <div style="font-weight: bold; text-decoration: underline; text-transform: uppercase;">${exportMeta.nama || '-'}</div>
+          <div style="font-weight: bold; text-decoration: underline;">${exportMeta.nama || '-'}</div>
           <div>NIK/NIP. ${exportMeta.nik || '-'}</div>
         </div>
         <div class="clear"></div>
@@ -221,30 +221,30 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }} />
       
-      {/* MODAL CETAK EXCEL / PDF */}
+      {/* MODAL CONFIG EXPORT DENGAN AUTO CACHE INPUT */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
             <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Konfigurasi Lampiran</h3>
-            <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Masukkan data surat penandatangan untuk dicetak ke dalam format berkas lampiran.</p>
+            <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Data di bawah ini akan diingat otomatis oleh sistem memori browser (Cache).</p>
             
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nomor Lampiran Surat</label>
-                <input type="text" value={exportMeta.noSurat} onChange={e => setExportMeta({...exportMeta, noSurat: e.target.value})} placeholder="Cth: 045.2/PKH-TAPIN/2026" className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
+                <input type="text" value={exportMeta.noSurat} onChange={e => handleMetaChange('noSurat', e.target.value)} placeholder="Cth: 045.2/PKH-TAPIN/2026" className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary font-semibold uppercase" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Jabatan Penandatangan</label>
-                <input type="text" value={exportMeta.jabatan} onChange={e => setExportMeta({...exportMeta, jabatan: e.target.value.toUpperCase()})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Jabatan Penandatangan (Bisa Huruf Kecil/Besar)</label>
+                <input type="text" value={exportMeta.jabatan} onChange={e => handleMetaChange('jabatan', e.target.value)} placeholder="Cth: Kepala Dinas Sosial / Koordinator" className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary font-semibold" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nama Lengkap</label>
-                <input type="text" value={exportMeta.nama} onChange={e => setExportMeta({...exportMeta, nama: e.target.value.toUpperCase()})} placeholder="Nama beserta gelar..." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nama Lengkap & Gelar (Bisa Huruf Kecil/Besar)</label>
+                <input type="text" value={exportMeta.nama} onChange={e => handleMetaChange('nama', e.target.value)} placeholder="Cth: M. Zaen Syachrullah, S.Kom." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary font-semibold" />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">NIK / NIP Nomer Pegawai</label>
-                <input type="number" value={exportMeta.nik} onChange={e => setExportMeta({...exportMeta, nik: e.target.value})} placeholder="Masukkan NIK/NIP..." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary" />
+                <input type="number" value={exportMeta.nik} onChange={e => handleMetaChange('nik', e.target.value)} placeholder="Masukkan NIK/NIP..." className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary font-semibold" />
               </div>
             </div>
 
@@ -260,7 +260,7 @@ export default function Responses() {
         </div>
       )}
 
-      {/* HEADER DESKTOP MONITOR PANEL */}
+      {/* MONITORING PANEL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center">
@@ -286,7 +286,7 @@ export default function Responses() {
         </div>
       </div>
       
-      {/* TAMPILAN MONITORING TABEL INTERNAL DI DASHBOARD */}
+      {/* MONITORING DATA */}
       <div className="bg-darker rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs md:text-sm whitespace-nowrap">
@@ -301,7 +301,7 @@ export default function Responses() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {loading ? (
-                <tr><td colSpan={activeSchema.length + 2} className="text-center py-10 text-gray-500">Memetakan basis data cloud...</td></tr>
+                <tr><td colSpan={activeSchema.length + 2} className="text-center py-10 text-gray-500">Memetakan data cloud...</td></tr>
               ) : responses.length > 0 ? (
                 responses.map((res, index) => (
                   <tr key={res.id} className={`${index % 2 === 0 ? 'bg-dark/20' : 'bg-darker'} hover:bg-primary/5 transition-colors`}>
