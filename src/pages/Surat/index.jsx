@@ -69,6 +69,7 @@ export default function Surat() {
     reader.readAsDataURL(file);
   };
 
+  // MESIN AI GEMINI YANG SUDAH DIPERBAIKI
   const handleGenerateAI = async () => {
     if (!formData.ai_prompt) return toast.error('Ketik instruksi untuk AI terlebih dahulu!');
     if (!genAI) return toast.error('Sistem Gagal: VITE_GEMINI_API_KEY tidak terdeteksi di Vercel!');
@@ -92,6 +93,7 @@ export default function Surat() {
     finally { setIsProcessing(false); }
   };
 
+  // PROSES SIMPAN KE DATABASE (STRICT PAYLOAD)
   const handleSave = async (e) => {
     e.preventDefault();
     const toastId = toast.loading('Memproses Surat & Lampiran...');
@@ -120,7 +122,7 @@ export default function Surat() {
 
       toast.loading('Menyimpan Arsip ke Database...', { id: toastId });
 
-      // STRICT PAYLOAD: HANYA INI YANG DIKIRIM KE SUPABASE, MENCEGAH ERROR 400
+      // STRICT PAYLOAD: Mencegah Error 400
       const payloadToSave = {
         jenis_surat: formData.jenis_surat,
         no_surat: formData.no_surat,
@@ -144,7 +146,7 @@ export default function Surat() {
       setFormData(prev => ({ ...prev, ai_prompt: '', file_lampiran: null }));
       fetchLetters();
     } catch (err) { 
-      toast.error('Gagal menyimpan. Cek struktur tabel Database Supabase Anda!', { id: toastId }); 
+      toast.error('Gagal menyimpan. Pastikan SQL CREATE TABLE sudah dijalankan!', { id: toastId }); 
       console.error(err);
     }
   };
@@ -156,6 +158,7 @@ export default function Surat() {
     fetchLetters();
   };
 
+  // CETAK PDF RESMI
   const handlePrint = (letter) => {
     const printWindow = window.open('', '_blank');
     const formattedContent = letter.isi_surat.replace(/\n/g, '<br/>');
