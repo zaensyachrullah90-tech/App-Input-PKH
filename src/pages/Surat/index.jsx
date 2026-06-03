@@ -3,7 +3,7 @@ import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEnvelopeOpenText, faRobot, faPrint, faSave, faSpinner, faPlus, faTrash, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faEnvelopeOpenText, faRobot, faPrint, faSave, faSpinner, faPlus, faTrash, faTimes, faUpload, faPaperclip } from '@fortawesome/free-solid-svg-icons';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -13,6 +13,8 @@ export default function Surat() {
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showModal, setShowModal] = useState(false);
+
+  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
   // CACHE MEMORY UNTUK PENANDATANGAN SURAT
   const cachedTtd = JSON.parse(localStorage.getItem('smart_surat_ttd_cache')) || {
@@ -32,7 +34,8 @@ export default function Surat() {
     isi_surat: '',
     tembusan: 'Arsip',
     ...cachedTtd,
-    ai_prompt: ''
+    ai_prompt: '',
+    file_lampiran: null // State Khusus File Lampiran
   });
 
   useEffect(() => { fetchLetters(); }, []);
@@ -54,6 +57,20 @@ export default function Surat() {
     setFormData({ ...formData, jenis_surat: jenis, no_surat: autoNum });
   };
 
+  // HANDLER UPLOAD FILE LAMPIRAN SURAT KE STATE SEMENTARA
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFormData(prev => ({
+        ...prev,
+        file_lampiran: { isFile: true, fileName: file.name, mimeType: file.type, base64Data: reader.result.split(',')[1] }
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleGenerateAI = async () => {
     if (!formData.ai_prompt) return toast.error('Ketik instruksi untuk AI terlebih dahulu!');
     setIsProcessing(true);
@@ -73,29 +90,62 @@ export default function Surat() {
   };
 
   // ==========================================
-  // PERBAIKAN ERROR 400 (AI_PROMPT DIHAPUS SEBELUM INSERT)
+  // PERBAIKAN ERROR 400 (STRICT PAYLOAD + GOOGLE DRIVE SYNC)
   // ==========================================
   const handleSave = async (e) => {
     e.preventDefault();
-    const toastId = toast.loading('Menyimpan Arsip Surat...');
+    const toastId = toast.loading('Memproses Surat & Lampiran...');
     try {
-      // 1. Simpan Cache Tanda Tangan
       localStorage.setItem('smart_surat_ttd_cache', JSON.stringify({
         ttd_jabatan: formData.ttd_jabatan, ttd_nama: formData.ttd_nama, ttd_nip: formData.ttd_nip
       }));
 
-      // 2. Buat duplikat payload dan hapus ai_prompt agar Supabase tidak Error 400
-      const payloadToSave = { ...formData };
-      delete payloadToSave.ai_prompt;
+      let finalLampiranText = formData.lampiran;
 
-      // 3. Kirim ke Database
+      // JIKA ADA FILE LAMPIRAN, UNGGAH DULU KE GOOGLE DRIVE
+      if (formData.file_lampiran) {
+        toast.loading('Mengunggah Lampiran ke Google Drive...', { id: toastId });
+        const res = await fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'uploadFile', ...formData.file_lampiran, folderId: globalFolderId })
+        });
+        const driveData = await res.json();
+        if (driveData.link) {
+          // Suntikkan Link Google Drive ke dalam teks Lampiran Surat
+          finalLampiranText = `${formData.lampiran} (Tautan Dokumen: ${driveData.link})`;
+        }
+      }
+
+      toast.loading('Menyimpan Arsip ke Database...', { id: toastId });
+
+      // STRICT PAYLOAD: Hanya mengirim kolom yang benar-benar ada di Supabase
+      // Hal ini menjamin Error 400 Bad Request musnah selamanya.
+      const payloadToSave = {
+        jenis_surat: formData.jenis_surat,
+        no_surat: formData.no_surat,
+        kepada: formData.kepada,
+        dari: formData.dari,
+        sifat: formData.sifat,
+        lampiran: finalLampiranText,
+        perihal: formData.perihal,
+        isi_surat: formData.isi_surat,
+        tembusan: formData.tembusan,
+        ttd_jabatan: formData.ttd_jabatan,
+        ttd_nama: formData.ttd_nama,
+        ttd_nip: formData.ttd_nip
+      };
+
       const { error } = await supabase.from('letters').insert([payloadToSave]);
       if (error) throw error;
       
       toast.success('Surat Tersimpan di Database!', { id: toastId });
       setShowModal(false);
+      setFormData(prev => ({ ...prev, ai_prompt: '', file_lampiran: null }));
       fetchLetters();
-    } catch (err) { toast.error('Gagal menyimpan surat.', { id: toastId }); }
+    } catch (err) { 
+      toast.error('Gagal menyimpan surat. Pastikan SQL ALTER TABLE sudah dijalankan.', { id: toastId }); 
+      console.error(err);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -110,7 +160,10 @@ export default function Surat() {
     const formattedContent = letter.isi_surat.replace(/\n/g, '<br/>');
     const dateNow = new Date(letter.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    // CSS CETAK BERSIH TANPA HEADER/FOOTER BROWSER
+    // Cerdaskan teks lampiran jika ada Link Google Drive agar bisa diklik di PDF
+    const lampiranRender = letter.lampiran.replace(/\(Tautan Dokumen: (https?:\/\/[^\s)]+)\)/g, '<br/><a href="$1" target="_blank" style="color: blue; text-decoration: underline;">[Buka Dokumen Lampiran]</a>');
+
+    // CSS CETAK BERSIH
     const printStyles = `
       <style>
         @page { size: A4 portrait; margin: 0; }
@@ -136,7 +189,6 @@ export default function Surat() {
 
     let htmlContent = '';
 
-    // LOGIKA RENDER BERDASARKAN JENIS SURAT
     if (letter.jenis_surat === 'Nota Dinas') {
       htmlContent = `
         <div class="kop-nota">NOTA DINAS</div>
@@ -147,7 +199,7 @@ export default function Surat() {
             <tr><td>Tanggal</td><td>:</td><td>${dateNow}</td></tr>
             <tr><td>Nomor</td><td>:</td><td>${letter.no_surat}</td></tr>
             <tr><td>Sifat</td><td>:</td><td>${letter.sifat}</td></tr>
-            <tr><td>Lampiran</td><td>:</td><td>${letter.lampiran || '-'}</td></tr>
+            <tr><td>Lampiran</td><td>:</td><td>${lampiranRender || '-'}</td></tr>
             <tr><td>Perihal</td><td>:</td><td><strong>${letter.perihal}</strong></td></tr>
           </table>
         </div>
@@ -155,7 +207,6 @@ export default function Surat() {
         <div class="isi-surat">${formattedContent}</div>
       `;
     } else {
-      // Surat Keluar Standar / Pemda
       htmlContent = `
         <div class="kop-surat">
           <h1>PEMERINTAH KABUPATEN TAPIN</h1>
@@ -166,7 +217,7 @@ export default function Surat() {
           <table style="width: auto;">
             <tr><td style="width: 80px; padding-bottom: 5px;">Nomor</td><td style="width: 10px;">:</td><td>${letter.no_surat}</td></tr>
             <tr><td style="padding-bottom: 5px;">Sifat</td><td>:</td><td>${letter.sifat}</td></tr>
-            <tr><td style="padding-bottom: 5px;">Lampiran</td><td>:</td><td>${letter.lampiran || '-'}</td></tr>
+            <tr><td style="padding-bottom: 5px;">Lampiran</td><td>:</td><td>${lampiranRender || '-'}</td></tr>
             <tr><td style="padding-bottom: 5px;">Perihal</td><td>:</td><td><strong>${letter.perihal}</strong></td></tr>
           </table>
           <div>Tapin, ${dateNow}</div>
@@ -201,7 +252,7 @@ export default function Surat() {
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon className="mr-3 text-primary" icon="{faEnvelopeOpenText}"/> Smart E-Letter Archive</h2>
-          <p className="text-gray-400 mt-2 text-xs md:text-sm">Database arsip surat menyurat resmi dinamis dengan Auto-Numbering.</p>
+          <p className="text-gray-400 mt-2 text-xs md:text-sm">Database arsip surat menyurat resmi dinamis dengan Upload Sinkronisasi Drive.</p>
         </div>
         <button onClick={() => setShowModal(true)} className="px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center">
           <FontAwesomeIcon className="mr-2" icon="{faPlus}"/> Tulis Surat Baru
@@ -246,10 +297,22 @@ export default function Surat() {
                     <option value="Biasa">Biasa</option><option value="Penting">Penting</option><option value="Rahasia">Rahasia</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Lampiran</label>
-                  <input type="text" value={formData.lampiran} onChange={e => setFormData({...formData, lampiran: e.target.value})} placeholder="Cth: 1 Berkas" className="w-full p-3 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none" />
+                
+                {/* SINKRONISASI FILE LAMPIRAN GOOGLE DRIVE */}
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Lampiran</label>
+                    <input type="text" value={formData.lampiran} onChange={e => setFormData({...formData, lampiran: e.target.value})} placeholder="Cth: 1 Berkas" className="w-full p-3 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none" />
+                  </div>
+                  <div className="relative">
+                    <input type="file" onChange={handleFileChange} className="hidden" id="upload-lampiran" />
+                    <label htmlFor="upload-lampiran" className="flex items-center justify-center p-3 px-4 rounded-xl border border-dashed bg-black/40 border-primary/50 text-primary hover:bg-primary/20 transition-all cursor-pointer font-bold text-xs" title="Unggah Dokumen Lampiran ke Google Drive">
+                       <FontAwesomeIcon : ? className="mr-2" faPaperclip faUpload} icon="{formData.file_lampiran"/> 
+                       {formData.file_lampiran ? 'Siap Upload' : 'Upload'}
+                    </label>
+                  </div>
                 </div>
+
                 <div className="md:col-span-2">
                   <label className="text-[10px] font-bold text-primary uppercase block mb-1">Perihal Utama</label>
                   <input type="text" value={formData.perihal} onChange={e => setFormData({...formData, perihal: e.target.value})} required className="w-full p-3 rounded-xl bg-primary/10 border border-primary/30 text-white text-sm outline-none font-bold" />
@@ -267,7 +330,6 @@ export default function Surat() {
                 </button>
               </div>
 
-              {/* TEXTAREA ISI SURAT */}
               <textarea 
                 value={formData.isi_surat} 
                 onChange={e => setFormData({...formData, isi_surat: e.target.value})} 
@@ -329,6 +391,7 @@ export default function Surat() {
                     <td className="px-6 py-4 text-gray-300 font-medium">
                       <div className="text-white font-bold">{letter.perihal.toUpperCase()}</div>
                       <div className="text-[10px] text-gray-500 mt-1 uppercase">KEPADA: {letter.kepada}</div>
+                      {letter.lampiran.includes('Tautan Dokumen') && <div className="text-[9px] text-green-400 mt-1 uppercase font-bold"><FontAwesomeIcon icon="{faPaperclip}"/> Memiliki File Lampiran Cloud</div>}
                     </td>
                     <td className="px-6 py-4 flex justify-end items-center space-x-2">
                       <button onClick={() => handlePrint(letter)} className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-600/30 rounded-lg text-xs font-bold transition-all uppercase"><FontAwesomeIcon className="mr-1 md:mr-2" icon="{faPrint}"/> <span className="hidden md:inline">Cetak PDF</span></button>
