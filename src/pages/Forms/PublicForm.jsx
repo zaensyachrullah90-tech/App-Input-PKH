@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faCheckCircle, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faCheckCircle, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 export default function PublicForm() {
   const { id: formId } = useParams();
@@ -19,10 +19,7 @@ export default function PublicForm() {
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
   useEffect(() => {
-    if (formId) {
-      fetchFormSetup();
-      fetchResponses();
-    }
+    if (formId) { fetchFormSetup(); fetchResponses(); }
   }, [formId]);
 
   const fetchFormSetup = async () => {
@@ -36,17 +33,13 @@ export default function PublicForm() {
 
       const autoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(autoNum);
-      
       const initialData = { nomor_registrasi: autoNum };
       formSchema.forEach(field => {
         if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase();
       });
       setFormData(prev => ({ ...initialData, ...prev }));
-    } catch (err) { 
-      toast.error('Formulir tidak valid.'); 
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (err) { toast.error('Formulir tidak valid.'); }
+    finally { setLoading(false); }
   };
 
   const fetchResponses = async () => {
@@ -102,7 +95,6 @@ export default function PublicForm() {
     });
 
     try {
-      // 1. PROSES UPLOAD FILE KE GOOGLE DRIVE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
           toast.loading(`Mengunggah berkas...`, { id: toastId });
@@ -119,14 +111,12 @@ export default function PublicForm() {
 
       toast.loading('Menyimpan ke Pusat Database...', { id: toastId });
 
-      // 2. SIMPAN KE SUPABASE
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
       } else {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: 'Publik' }]);
       }
 
-      // 3. SINKRONISASI GOOGLE SPREADSHEET
       if (formConfig?.spreadsheet_id && !editingId) {
         toast.loading('Sinkronisasi ke Cloud...', { id: toastId });
         try {
@@ -148,9 +138,7 @@ export default function PublicForm() {
       setEditingId(null);
       fetchResponses();
       setActiveTab('results');
-    } catch (err) { 
-      toast.error('Gagal mengirim tanggapan.', { id: toastId }); 
-    }
+    } catch (err) { toast.error('Gagal mengirim tanggapan.', { id: toastId }); }
   };
 
   const handleEdit = (responseItem) => {
@@ -159,6 +147,22 @@ export default function PublicForm() {
     setEditingId(responseItem.id);
     setActiveTab('input');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ========================================================
+  // LOGIKA BARU: USER REQUEST DELETE
+  // ========================================================
+  const handleRequestDelete = async (responseItem) => {
+    if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
+    const toastId = toast.loading('Mengirim permohonan ke Pusat...');
+    try {
+      const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
+      await supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id);
+      toast.success('Permohonan penghapusan terkirim! Menunggu konfirmasi Admin.', { id: toastId });
+      fetchResponses();
+    } catch (err) {
+      toast.error('Gagal mengajukan permohonan.', { id: toastId });
+    }
   };
 
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Form Publik...</p></div>;
@@ -177,10 +181,7 @@ export default function PublicForm() {
       <div className="w-full max-w-2xl bg-[#0f172a]/70 backdrop-blur-3xl border border-white/10 p-5 md:p-10 rounded-[2rem] shadow-2xl relative z-10 animate-fade-in-up">
         
         <div className="flex flex-col mb-8 border-b border-white/5 pb-6">
-          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight flex items-center">
-             <FontAwesomeIcon icon={faFolderOpen} className="mr-3 text-primary" />
-             {formConfig?.title}
-          </h1>
+          <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-3 text-primary" /> {formConfig?.title}</h1>
           <p className="text-gray-400 mt-2 text-sm leading-relaxed">{formConfig?.description}</p>
         </div>
 
@@ -191,9 +192,7 @@ export default function PublicForm() {
 
         {activeTab === 'input' ? (
           schema.length === 0 ? (
-            <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30">
-              <p className="text-gray-500 font-medium">Formulir belum memiliki kolom input.</p>
-            </div>
+            <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 font-medium">Formulir belum memiliki kolom input.</p></div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5 animate-fade-in">
               <div className="bg-primary/5 border border-primary/20 p-5 rounded-2xl flex items-center justify-between mb-4">
@@ -274,37 +273,35 @@ export default function PublicForm() {
             </form>
           )
         ) : (
-          <div className="animate-fade-in space-y-4">
+          <div className="space-y-3 animate-fade-in">
             {responses.length === 0 ? (
-              <div className="text-center p-10 bg-black/40 rounded-3xl border border-white/5">
-                <p className="text-gray-500 text-sm font-medium">Belum ada tanggapan arsip.</p>
-              </div>
+              <div className="text-center p-10 bg-black/40 rounded-3xl border border-white/5"><p className="text-gray-500 text-sm font-medium">Belum ada tanggapan arsip.</p></div>
             ) : (
               responses.map((res) => (
-                <div key={res.id} className="bg-black/40 border border-white/5 p-5 rounded-2xl hover:border-white/20 transition-all duration-300 group">
-                  <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-3">
-                    <span className="text-[10px] text-primary font-mono tracking-widest font-bold">
-                      {res.data.nomor_registrasi || `ID: ${res.id.substring(0,8)}`}
-                    </span>
-                    <div className="flex items-center space-x-3">
-                       <span className="text-[10px] text-gray-500 hidden md:block">{new Date(res.created_at).toLocaleString('id-ID')}</span>
-                       <button onClick={() => handleEdit(res)} className="text-[10px] font-black text-black bg-white hover:bg-primary px-3 py-1.5 rounded-lg transition-colors uppercase"><FontAwesomeIcon icon={faEdit} className="mr-1" /> Edit</button>
-                    </div>
+                <div key={res.id} className="bg-black/40 border border-white/5 p-4 rounded-xl flex justify-between items-center text-xs hover:border-white/20 transition-all duration-300 group">
+                  <div>
+                    <div className="font-bold text-gray-200 uppercase">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="text-[10px] text-gray-500 font-mono mt-1">{new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
-                  <div className="grid grid-cols-2 gap-y-4 gap-x-3 text-xs">
-                    {schema.slice(0, 4).map(field => (
-                      <div key={field.name}>
-                        <div className="text-gray-500 text-[9px] uppercase font-bold tracking-wider mb-1">{field.label}</div>
-                        <div className="text-gray-200 font-medium truncate max-w-[120px] md:max-w-xs">
-                          {String(res.data[field.name]).startsWith('http') ? (
-                            <a href={res.data[field.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline">Lihat Lampiran</a>
-                          ) : (
-                            res.data[field.name] || '-'
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                  
+                  {/* TOMBOL AKSI USER (EDIT ATAU REQUEST HAPUS) */}
+                  <div className="flex items-center space-x-2">
+                    {res.data.delete_request_status === 'pending' ? (
+                      <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20 text-center leading-tight max-w-[80px]">
+                        MENUNGGU ACC ADMIN
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => handleEdit(res)} className="px-3 py-2 bg-white text-black font-bold uppercase rounded-lg text-[10px] hover:bg-gray-200 transition-colors">
+                          <FontAwesomeIcon icon={faEdit} className="mr-1" /> Edit
+                        </button>
+                        <button onClick={() => handleRequestDelete(res)} title="Minta Hapus" className="px-3 py-2 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg text-[10px] hover:bg-red-600 hover:text-white transition-colors">
+                          <FontAwesomeIcon icon={faTrash} />
+                        </button>
+                      </>
+                    )}
                   </div>
+
                 </div>
               ))
             )}
