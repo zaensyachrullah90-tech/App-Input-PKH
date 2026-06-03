@@ -16,7 +16,6 @@ export default function Surat() {
 
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
-  // CACHE MEMORY UNTUK PENANDATANGAN SURAT
   const cachedTtd = JSON.parse(localStorage.getItem('smart_surat_ttd_cache')) || {
     ttd_jabatan: 'Ketua TIM PKH Kab. Tapin',
     ttd_nama: 'M. Zaen Syachrullah, S.Pd.I',
@@ -35,7 +34,7 @@ export default function Surat() {
     tembusan: 'Arsip',
     ...cachedTtd,
     ai_prompt: '',
-    file_lampiran: null // State Khusus File Lampiran
+    file_lampiran: null
   });
 
   useEffect(() => { fetchLetters(); }, []);
@@ -57,7 +56,6 @@ export default function Surat() {
     setFormData({ ...formData, jenis_surat: jenis, no_surat: autoNum });
   };
 
-  // HANDLER UPLOAD FILE LAMPIRAN SURAT KE STATE SEMENTARA
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -73,6 +71,8 @@ export default function Surat() {
 
   const handleGenerateAI = async () => {
     if (!formData.ai_prompt) return toast.error('Ketik instruksi untuk AI terlebih dahulu!');
+    if (!genAI) return toast.error('Sistem Gagal: VITE_GEMINI_API_KEY tidak terdeteksi di Vercel!');
+
     setIsProcessing(true);
     const toastId = toast.loading('AI sedang menyusun draf surat resmi...');
     try {
@@ -85,13 +85,13 @@ export default function Surat() {
 
       setFormData({ ...formData, isi_surat: generatedText });
       toast.success('Draf Disusun AI!', { id: toastId });
-    } catch (err) { toast.error('AI gagal menyusun surat.', { id: toastId }); } 
+    } catch (err) { 
+      toast.error(`AI Gagal: ${err.message}`, { id: toastId }); 
+      console.error(err);
+    } 
     finally { setIsProcessing(false); }
   };
 
-  // ==========================================
-  // PERBAIKAN ERROR 400 (STRICT PAYLOAD + GOOGLE DRIVE SYNC)
-  // ==========================================
   const handleSave = async (e) => {
     e.preventDefault();
     const toastId = toast.loading('Memproses Surat & Lampiran...');
@@ -102,24 +102,25 @@ export default function Surat() {
 
       let finalLampiranText = formData.lampiran;
 
-      // JIKA ADA FILE LAMPIRAN, UNGGAH DULU KE GOOGLE DRIVE
       if (formData.file_lampiran) {
         toast.loading('Mengunggah Lampiran ke Google Drive...', { id: toastId });
-        const res = await fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'uploadFile', ...formData.file_lampiran, folderId: globalFolderId })
-        });
-        const driveData = await res.json();
-        if (driveData.link) {
-          // Suntikkan Link Google Drive ke dalam teks Lampiran Surat
-          finalLampiranText = `${formData.lampiran} (Tautan Dokumen: ${driveData.link})`;
+        try {
+          const res = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'uploadFile', ...formData.file_lampiran, folderId: globalFolderId })
+          });
+          const driveData = await res.json();
+          if (driveData.link) {
+            finalLampiranText = `${formData.lampiran} (Tautan Dokumen: ${driveData.link})`;
+          }
+        } catch (e) {
+          toast.error('Gagal upload ke Drive, melanjutkan simpan data lokal.', { id: toastId });
         }
       }
 
       toast.loading('Menyimpan Arsip ke Database...', { id: toastId });
 
-      // STRICT PAYLOAD: Hanya mengirim kolom yang benar-benar ada di Supabase
-      // Hal ini menjamin Error 400 Bad Request musnah selamanya.
+      // STRICT PAYLOAD: HANYA INI YANG DIKIRIM KE SUPABASE, MENCEGAH ERROR 400
       const payloadToSave = {
         jenis_surat: formData.jenis_surat,
         no_surat: formData.no_surat,
@@ -143,13 +144,13 @@ export default function Surat() {
       setFormData(prev => ({ ...prev, ai_prompt: '', file_lampiran: null }));
       fetchLetters();
     } catch (err) { 
-      toast.error('Gagal menyimpan surat. Pastikan SQL ALTER TABLE sudah dijalankan.', { id: toastId }); 
+      toast.error('Gagal menyimpan. Cek struktur tabel Database Supabase Anda!', { id: toastId }); 
       console.error(err);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Hapus arsip surat ini?')) return;
+    if (!window.confirm('Hapus arsip surat ini secara permanen?')) return;
     await supabase.from('letters').delete().eq('id', id);
     toast.success('Surat dihapus.');
     fetchLetters();
@@ -159,11 +160,8 @@ export default function Surat() {
     const printWindow = window.open('', '_blank');
     const formattedContent = letter.isi_surat.replace(/\n/g, '<br/>');
     const dateNow = new Date(letter.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-
-    // Cerdaskan teks lampiran jika ada Link Google Drive agar bisa diklik di PDF
     const lampiranRender = letter.lampiran.replace(/\(Tautan Dokumen: (https?:\/\/[^\s)]+)\)/g, '<br/><a href="$1" target="_blank" style="color: blue; text-decoration: underline;">[Buka Dokumen Lampiran]</a>');
 
-    // CSS CETAK BERSIH
     const printStyles = `
       <style>
         @page { size: A4 portrait; margin: 0; }
@@ -183,7 +181,7 @@ export default function Surat() {
         .ttd-space { height: 80px; }
         .tembusan { margin-top: 80px; font-size: 12px; clear: both; }
         .clear { clear: both; }
-        @media print { body { -webkit-print-color-adjust: exact; } }
+        @media print { body { -webkit-print-color-adjust: exact; padding: 25mm 20mm; } }
       </style>
     `;
 
@@ -251,7 +249,9 @@ export default function Surat() {
       <Toaster #374151' '#111827', '#fff', '1px background: border: color: position="top-right" solid style: toastOptions="{{" { } }}/>
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
         <div>
-          <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon className="mr-3 text-primary" icon="{faEnvelopeOpenText}"/> Smart E-Letter Archive</h2>
+          <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase flex items-center">
+            <FontAwesomeIcon className="mr-3 text-primary" icon="{faEnvelopeOpenText}"/> Smart E-Letter Archive
+          </h2>
           <p className="text-gray-400 mt-2 text-xs md:text-sm">Database arsip surat menyurat resmi dinamis dengan Upload Sinkronisasi Drive.</p>
         </div>
         <button onClick={() => setShowModal(true)} className="px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center">
@@ -262,8 +262,12 @@ export default function Surat() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl p-6 md:p-8 rounded-3xl shadow-2xl relative my-8">
-            <button onClick={() => setShowModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon="{faTimes}" size="lg"/></button>
-            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6 flex items-center border-b border-white/10 pb-4"><FontAwesomeIcon className="mr-3 text-primary" icon="{faRobot}"/> Form Dokumen Surat Resmi</h3>
+            <button onClick={() => setShowModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white">
+              <FontAwesomeIcon icon="{faTimes}" size="lg"/>
+            </button>
+            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6 flex items-center border-b border-white/10 pb-4">
+              <FontAwesomeIcon className="mr-3 text-primary" icon="{faRobot}"/> Form Dokumen Surat Resmi
+            </h3>
             
             <form onSubmit={handleSave} className="space-y-5">
               
@@ -298,7 +302,6 @@ export default function Surat() {
                   </select>
                 </div>
                 
-                {/* SINKRONISASI FILE LAMPIRAN GOOGLE DRIVE */}
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Lampiran</label>
@@ -391,7 +394,7 @@ export default function Surat() {
                     <td className="px-6 py-4 text-gray-300 font-medium">
                       <div className="text-white font-bold">{letter.perihal.toUpperCase()}</div>
                       <div className="text-[10px] text-gray-500 mt-1 uppercase">KEPADA: {letter.kepada}</div>
-                      {letter.lampiran.includes('Tautan Dokumen') && <div className="text-[9px] text-green-400 mt-1 uppercase font-bold"><FontAwesomeIcon icon="{faPaperclip}"/> Memiliki File Lampiran Cloud</div>}
+                      {letter.lampiran && letter.lampiran.includes('Tautan Dokumen') && <div className="text-[9px] text-green-400 mt-1 uppercase font-bold"><FontAwesomeIcon icon="{faPaperclip}"/> Memiliki File Lampiran Cloud</div>}
                     </td>
                     <td className="px-6 py-4 flex justify-end items-center space-x-2">
                       <button onClick={() => handlePrint(letter)} className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-600/30 rounded-lg text-xs font-bold transition-all uppercase"><FontAwesomeIcon className="mr-1 md:mr-2" icon="{faPrint}"/> <span className="hidden md:inline">Cetak PDF</span></button>
