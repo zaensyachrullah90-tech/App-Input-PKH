@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faCheckCircle, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faCheckCircle, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faClock } from '@fortawesome/free-solid-svg-icons';
 
 export default function PublicForm() {
   const { id: formId } = useParams();
@@ -149,9 +149,6 @@ export default function PublicForm() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // ========================================================
-  // LOGIKA BARU: USER REQUEST DELETE
-  // ========================================================
   const handleRequestDelete = async (responseItem) => {
     if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
     const toastId = toast.loading('Mengirim permohonan ke Pusat...');
@@ -165,15 +162,44 @@ export default function PublicForm() {
     }
   };
 
+  // FITUR BARU: Logika Pengecekan Batas Waktu
+  const isFormExpiredOrEarly = () => {
+    if (!formConfig) return false;
+    const now = new Date();
+    if (formConfig.start_date && now < new Date(formConfig.start_date)) return true;
+    if (formConfig.end_date && now > new Date(formConfig.end_date)) return true;
+    return false;
+  };
+
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Form Publik...</p></div>;
+  
   if (formConfig?.is_active === false) return (
     <div className="min-h-screen bg-[#030712] flex justify-center items-center p-6 text-center">
       <div className="bg-[#0f172a] border border-white/5 p-8 rounded-3xl max-w-md w-full"><FontAwesomeIcon icon={faLock} className="text-5xl text-gray-600 mb-6" /><h2 className="text-xl font-black text-white mb-2 uppercase">Pengisian Ditutup</h2></div>
     </div>
   );
 
+  // FITUR BARU: Render khusus jika di luar batas waktu
+  if (isFormExpiredOrEarly()) return (
+    <div className="min-h-screen bg-[#030712] flex justify-center items-center p-6 text-center">
+      <div className="bg-[#0f172a] border border-white/5 p-8 rounded-3xl max-w-md w-full">
+        <FontAwesomeIcon icon={faClock} className="text-5xl text-yellow-600 mb-6" />
+        <h2 className="text-xl font-black text-white mb-2 uppercase">Waktu Akses Tidak Berlaku</h2>
+        <p className="text-gray-400 text-sm">Formulir ini dibatasi oleh waktu (belum dimulai atau sudah ditutup). Hubungi Administrator.</p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-3 md:p-6 flex justify-center items-start pt-4 relative overflow-hidden">
+      
+      {/* FITUR BARU: Style wajib untuk Menyembunyikan Tanggal saat di-Print */}
+      <style>{`
+        @media print {
+          .print-hidden-log { display: none !important; }
+        }
+      `}</style>
+
       <Toaster position="top-center" toastOptions={{ style: { background: '#111827', color: '#fff', borderRadius: '16px', border: '1px solid #374151' } }} />
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-yellow-600/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -281,10 +307,10 @@ export default function PublicForm() {
                 <div key={res.id} className="bg-black/40 border border-white/5 p-4 rounded-xl flex justify-between items-center text-xs hover:border-white/20 transition-all duration-300 group">
                   <div>
                     <div className="font-bold text-gray-200 uppercase">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
-                    <div className="text-[10px] text-gray-500 font-mono mt-1">{new Date(res.created_at).toLocaleString('id-ID')}</div>
+                    {/* FITUR BARU: Tambahan class "print-hidden-log" di baris ini untuk menghilangkan log tanggal saat di print */}
+                    <div className="text-[10px] text-gray-500 font-mono mt-1 print-hidden-log">{new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
-                  {/* TOMBOL AKSI USER (EDIT ATAU REQUEST HAPUS) */}
                   <div className="flex items-center space-x-2">
                     {res.data.delete_request_status === 'pending' ? (
                       <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20 text-center leading-tight max-w-[80px]">
