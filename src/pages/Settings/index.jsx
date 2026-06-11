@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import Papa from 'papaparse';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faLink, faFileExcel, faPenNib, faTrash, faPowerOff, faLock, faLockOpen, faEye, faEdit, faSave, faTimes, faFolder } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faLink, faFileExcel, faPenNib, faTrash, faPowerOff, faLock, faLockOpen, faEye, faEdit, faSave, faTimes, faFolder, faCalendarAlt } from '@fortawesome/free-solid-svg-icons';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -14,7 +14,8 @@ export default function Settings() {
   const [selectedFormId, setSelectedFormId] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [creationMode, setCreationMode] = useState('manual');
-  const [newForm, setNewForm] = useState({ title: '', description: '', link: '' });
+  // FITUR BARU: Tambah start_date dan end_date pada state newForm
+  const [newForm, setNewForm] = useState({ title: '', description: '', link: '', start_date: '', end_date: '' });
   
   const [newColumn, setNewColumn] = useState({ name: '', label: '', type: 'text', defaultValue: '', options: '' });
   const [activeSchema, setActiveSchema] = useState([]);
@@ -23,6 +24,9 @@ export default function Settings() {
   const [editingColName, setEditingColName] = useState(null);
   const [editColData, setEditColData] = useState({});
   
+  // FITUR BARU: State untuk Modal Edit Jadwal Waktu
+  const [scheduleModal, setScheduleModal] = useState({ show: false, id: null, start_date: '', end_date: '', title: '' });
+
   // STATE CONFIG ID FOLDER GOOGLE DRIVE
   const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem('global_drive_folder_id') || '');
 
@@ -63,12 +67,27 @@ export default function Settings() {
     await supabase.from('forms').update({ is_active: newStatus }).eq('id', id);
   };
 
+  // FITUR BARU: Fungsi Simpan Edit Jadwal
+  const handleSaveSchedule = async () => {
+    const toastId = toast.loading('Memperbarui jadwal form...');
+    try {
+      await supabase.from('forms').update({ start_date: scheduleModal.start_date || null, end_date: scheduleModal.end_date || null }).eq('id', scheduleModal.id);
+      setForms(forms.map(f => f.id === scheduleModal.id ? { ...f, start_date: scheduleModal.start_date, end_date: scheduleModal.end_date } : f));
+      toast.success('Jadwal form berhasil diperbarui!', { id: toastId });
+      setScheduleModal({ show: false, id: null, start_date: '', end_date: '', title: '' });
+    } catch (err) { toast.error('Gagal memperbarui jadwal.', { id: toastId }); }
+  };
+
+  // FITUR BARU: Update executeFormCreation payload inject start_date & end_date
   const executeFormCreation = async (finalSchema, finalLink, finalDriveId = '') => {
     try {
-      const { error } = await supabase.from('forms').insert([{ title: newForm.title, description: newForm.description, spreadsheet_link: finalLink, spreadsheet_id: finalDriveId, schema: finalSchema, is_active: true }]);
+      const { error } = await supabase.from('forms').insert([{ 
+        title: newForm.title, description: newForm.description, spreadsheet_link: finalLink, spreadsheet_id: finalDriveId, schema: finalSchema, is_active: true,
+        start_date: newForm.start_date || null, end_date: newForm.end_date || null
+      }]);
       if (error) throw error;
       toast.success('Sistem Cerdas Berhasil Di-Generate!', { id: 'create' });
-      setNewForm({ title: '', description: '', link: '' });
+      setNewForm({ title: '', description: '', link: '', start_date: '', end_date: '' });
       fetchForms();
     } catch (err) { toast.error('Gagal menyimpan form ke database.', { id: 'create' }); } 
     finally { setIsProcessing(false); }
@@ -235,7 +254,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in">
+    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in relative">
       <div className="border-b border-gray-800 pb-6"><h1 className="text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon icon={faCog} className="mr-3 text-primary" /> System Control Center</h1></div>
 
       <div className="bg-darker border border-gray-700 p-6 rounded-2xl shadow-xl relative overflow-hidden">
@@ -257,6 +276,19 @@ export default function Settings() {
         <form onSubmit={creationMode === 'manual' ? handleCreateManual : creationMode === 'link' ? handleExtractFromLink : (e) => e.preventDefault()} className="space-y-4">
           <input type="text" required placeholder="Judul Form Utama" value={newForm.title} onChange={(e) => setNewForm({...newForm, title: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none" />
           <textarea placeholder="Deskripsi form..." required value={newForm.description} onChange={(e) => setNewForm({...newForm, description: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none h-20 resize-none" />
+          
+          {/* FITUR BARU: Input Batas Waktu Mulai & Selesai */}
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Mulai Buka (Opsional)</label>
+              <input type="datetime-local" value={newForm.start_date} onChange={(e) => setNewForm({...newForm, start_date: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none text-sm" />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Ditutup (Opsional)</label>
+              <input type="datetime-local" value={newForm.end_date} onChange={(e) => setNewForm({...newForm, end_date: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none text-sm" />
+            </div>
+          </div>
+
           {creationMode === 'link' && <input type="url" required placeholder="Tautan Google Spreadsheet..." value={newForm.link} onChange={(e) => setNewForm({...newForm, link: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white outline-none" />}
           {creationMode === 'file' ? (
              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark/50 hover:bg-gray-800">
@@ -350,7 +382,7 @@ export default function Settings() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-dark/50 text-gray-400 text-xs uppercase border-b border-gray-800">
-              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Link</th><th className="p-5 text-right">Aksi</th></tr>
+              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Aksi / Link</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {forms.map(f => {
@@ -358,10 +390,20 @@ export default function Settings() {
                 const isActive = f.is_active !== false;
                 return (
                   <tr key={f.id} className="hover:bg-gray-800/40">
-                    <td className="p-5 font-bold text-gray-200">{f.title}</td>
+                    <td className="p-5 font-bold text-gray-200">
+                      {f.title}
+                      {/* FITUR BARU: Indikator Jadwal di Tabel */}
+                      {(f.start_date || f.end_date) && (
+                        <div className="text-[10px] text-yellow-500 font-mono mt-1 mt-1">
+                          {f.start_date ? new Date(f.start_date).toLocaleString('id-ID') : 'Sekarang'} s/d {f.end_date ? new Date(f.end_date).toLocaleString('id-ID') : 'Selamanya'}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20' : 'text-red-400 border-red-500/20'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
-                    <td className="p-5 text-center"><button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button></td>
-                    <td className="p-5 flex justify-end space-x-2">
+                    <td className="p-5 flex justify-end space-x-2 items-center">
+                      {/* FITUR BARU: Tombol Edit Jadwal */}
+                      <button type="button" onClick={() => setScheduleModal({ show: true, id: f.id, title: f.title, start_date: f.start_date || '', end_date: f.end_date || '' })} className="px-3 py-2 bg-blue-900/40 text-blue-400 border border-blue-900/50 font-bold rounded-lg text-[10px] uppercase transition-colors hover:bg-blue-600 hover:text-white"><FontAwesomeIcon icon={faCalendarAlt} className="mr-1" /> Waktu</button>
+                      <button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button>
                       {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" className="p-2.5 bg-gray-800 text-primary rounded-lg"><FontAwesomeIcon icon={faEye} /></a>}
                       <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 rounded-lg"><FontAwesomeIcon icon={faTrash} /></button>
                     </td>
@@ -372,6 +414,31 @@ export default function Settings() {
           </table>
         </div>
       </div>
+
+      {/* FITUR BARU: Modal Edit Jadwal Murni */}
+      {scheduleModal.show && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div className="bg-darker border border-primary/30 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+            <h3 className="text-xl font-bold text-white mb-2"><FontAwesomeIcon icon={faCalendarAlt} className="mr-2 text-primary" /> Atur Jadwal Form</h3>
+            <p className="text-xs text-gray-400 mb-6 border-b border-white/10 pb-3">{scheduleModal.title}</p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Mulai Buka (Kosongkan jika bebas)</label>
+                <input type="datetime-local" value={scheduleModal.start_date} onChange={(e) => setScheduleModal({...scheduleModal, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-dark border border-gray-600 text-white outline-none text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Ditutup (Kosongkan jika bebas)</label>
+                <input type="datetime-local" value={scheduleModal.end_date} onChange={(e) => setScheduleModal({...scheduleModal, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-dark border border-gray-600 text-white outline-none text-sm" />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-8">
+              <button onClick={() => setScheduleModal({ show: false, id: null, start_date: '', end_date: '', title: '' })} className="px-5 py-2.5 bg-gray-800 text-white font-bold rounded-xl text-xs">Batal</button>
+              <button onClick={handleSaveSchedule} className="px-5 py-2.5 bg-primary text-black font-black uppercase rounded-xl text-xs">Simpan Jadwal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
