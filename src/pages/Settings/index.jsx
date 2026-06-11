@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
-import toast from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import Papa from 'papaparse';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faLink, faFileExcel, faPenNib, faTrash, faPowerOff, faLock, faLockOpen, faEye, faEdit, faSave, faTimes, faFolder, faCalendarAlt } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faLink, faFileExcel, faPenNib, faTrash, faPowerOff, faLock, faLockOpen, faEye, faEdit, faSave, faTimes, faFolder } from '@fortawesome/free-solid-svg-icons';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -14,19 +14,15 @@ export default function Settings() {
   const [selectedFormId, setSelectedFormId] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [creationMode, setCreationMode] = useState('manual');
-  // FITUR BARU: Tambah start_date dan end_date pada state newForm
-  const [newForm, setNewForm] = useState({ title: '', description: '', link: '', start_date: '', end_date: '' });
+  const [newForm, setNewForm] = useState({ title: '', description: '', link: '' });
   
   const [newColumn, setNewColumn] = useState({ name: '', label: '', type: 'text', defaultValue: '', options: '' });
   const [activeSchema, setActiveSchema] = useState([]);
   
-  // STATE EDIT KOLOM (FULL CRUD) YANG DIKEMBALIKAN UTUH
+  // STATE EDIT KOLOM (FULL CRUD)
   const [editingColName, setEditingColName] = useState(null);
   const [editColData, setEditColData] = useState({});
   
-  // FITUR BARU: State untuk Modal Edit Jadwal Waktu
-  const [scheduleModal, setScheduleModal] = useState({ show: false, id: null, start_date: '', end_date: '', title: '' });
-
   // STATE CONFIG ID FOLDER GOOGLE DRIVE
   const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem('global_drive_folder_id') || '');
 
@@ -67,52 +63,65 @@ export default function Settings() {
     await supabase.from('forms').update({ is_active: newStatus }).eq('id', id);
   };
 
-  // FITUR BARU: Fungsi Simpan Edit Jadwal
-  const handleSaveSchedule = async () => {
-    const toastId = toast.loading('Memperbarui jadwal form...');
-    try {
-      await supabase.from('forms').update({ start_date: scheduleModal.start_date || null, end_date: scheduleModal.end_date || null }).eq('id', scheduleModal.id);
-      setForms(forms.map(f => f.id === scheduleModal.id ? { ...f, start_date: scheduleModal.start_date, end_date: scheduleModal.end_date } : f));
-      toast.success('Jadwal form berhasil diperbarui!', { id: toastId });
-      setScheduleModal({ show: false, id: null, start_date: '', end_date: '', title: '' });
-    } catch (err) { toast.error('Gagal memperbarui jadwal.', { id: toastId }); }
-  };
-
-  // FITUR BARU: Update executeFormCreation payload inject start_date & end_date
-  const executeFormCreation = async (finalSchema, finalLink, finalDriveId = '') => {
+  const executeFormCreation = async (finalSchema, finalLink, finalDriveId, toastId) => {
     try {
       const { error } = await supabase.from('forms').insert([{ 
-        title: newForm.title, description: newForm.description, spreadsheet_link: finalLink, spreadsheet_id: finalDriveId, schema: finalSchema, is_active: true,
-        start_date: newForm.start_date || null, end_date: newForm.end_date || null
+        title: newForm.title, 
+        description: newForm.description, 
+        spreadsheet_link: finalLink, 
+        spreadsheet_id: finalDriveId, 
+        schema: finalSchema, 
+        is_active: true 
       }]);
       if (error) throw error;
-      toast.success('Sistem Cerdas Berhasil Di-Generate!', { id: 'create' });
-      setNewForm({ title: '', description: '', link: '', start_date: '', end_date: '' });
+      toast.success('Sistem Cerdas Berhasil Di-Generate!', { id: toastId });
+      setNewForm({ title: '', description: '', link: '' });
       fetchForms();
-    } catch (err) { toast.error('Gagal menyimpan form ke database.', { id: 'create' }); } 
+    } catch (err) { 
+      toast.error('Gagal menyimpan form ke database.', { id: toastId }); 
+      console.error(err);
+    } 
     finally { setIsProcessing(false); }
   };
 
+  // ==========================================
+  // PERBAIKAN: STRICT SPREADSHEET CREATION (WAJIB GOOGLE DRIVE)
+  // ==========================================
   const handleCreateManual = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
-    toast.loading('Membangun Form...', { id: 'create' });
+    const toastId = toast.loading('Memerintahkan Google Drive Membuat Spreadsheet...');
     let finalLink = ''; let driveId = '';
+    
     const schema = [
       { name: 'no', label: 'NO', type: 'number', adminLocked: true, defaultValue: '' },
       { name: 'nama', label: 'NAMA LENGKAP', type: 'text', adminLocked: false, defaultValue: '' }
     ];
+
     try {
       const res = await fetch('/api/sync-google', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
       });
-      if (res.ok) {
-        const googleData = await res.json();
-        finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
+      
+      const googleData = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(googleData.error || googleData.message || 'Koneksi ke Google API Gagal.');
       }
-    } catch (err) { console.warn('API Offline.'); }
-    executeFormCreation(schema, finalLink, driveId);
+
+      finalLink = googleData.spreadsheetUrl; 
+      driveId = googleData.spreadsheetId;
+      toast.loading('Spreadsheet Terbuat! Menyimpan ke Database...', { id: toastId });
+      
+    } catch (err) { 
+      // Jika Google gagal, form TIDAK AKAN DIBUAT dan pesan error asli akan muncul.
+      toast.error(`ERROR GOOGLE: ${err.message}. Pastikan Kunci Akun Layanan Google di Vercel sudah benar!`, { id: toastId, duration: 8000 });
+      setIsProcessing(false);
+      return; // Berhenti total
+    }
+
+    executeFormCreation(schema, finalLink, driveId, toastId);
   };
 
   const handleExtractFromLink = async (e) => {
@@ -122,14 +131,14 @@ export default function Settings() {
     if (!match) return toast.error('Format Tautan tidak valid.');
     const sheetId = match[1];
     setIsProcessing(true);
-    toast.loading('Menyedot Header dari Link Spreadsheet...', { id: 'create' });
+    const toastId = toast.loading('Menyedot Header dari Link Spreadsheet...');
     const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
 
     Papa.parse(csvUrl, {
       download: true, header: false, skipEmptyLines: true,
       complete: (results) => {
         const rows = results.data;
-        if (!rows || rows.length === 0) { toast.error('Spreadsheet kosong.', { id: 'create' }); setIsProcessing(false); return; }
+        if (!rows || rows.length === 0) { toast.error('Spreadsheet kosong.', { id: toastId }); setIsProcessing(false); return; }
         let headerRow = [];
         for (let i = 0; i < Math.min(5, rows.length); i++) { if (rows[i].length > headerRow.length) headerRow = rows[i]; }
         const generatedSchema = headerRow.map(item => {
@@ -141,19 +150,24 @@ export default function Settings() {
           };
         }).filter(item => item.name !== '');
 
-        if (!generatedSchema.some(s => s.name === 'no')) {
+        if (!generatedSchema.some(s => s.name === 'no' || s.name === 'nomor')) {
           generatedSchema.unshift({ name: 'no', label: 'NO', type: 'number', adminLocked: true, defaultValue: '' });
         }
-        executeFormCreation(generatedSchema, newForm.link, sheetId);
+        executeFormCreation(generatedSchema, newForm.link, sheetId, toastId);
       },
-      error: () => { toast.error('Gagal mengakses Link.', { id: 'create' }); setIsProcessing(false); }
+      error: () => { toast.error('Gagal mengakses Link. Pastikan aksesnya "Anyone with the link".', { id: toastId }); setIsProcessing(false); }
     });
   };
 
+  // ==========================================
+  // PERBAIKAN: STRICT SPREADSHEET CREATION VIA FILE CSV
+  // ==========================================
   const handleExtractFromFile = (e) => {
     const file = e.target.files[0];
-    if (!file || !newForm.title) return toast.error('Isi judul form!');
-    setIsProcessing(true); toast.loading('Memproses File Upload...', { id: 'create' });
+    if (!file || !newForm.title) return toast.error('Isi judul form terlebih dahulu!');
+    setIsProcessing(true); 
+    const toastId = toast.loading('Memproses File Upload & Membuat Spreadsheet Google...');
+    
     Papa.parse(file, {
       header: false, skipEmptyLines: true,
       complete: async (results) => {
@@ -169,18 +183,27 @@ export default function Settings() {
           };
         }).filter(item => item.name !== '');
 
+        if (!generatedSchema.some(s => s.name === 'no' || s.name === 'nomor')) {
+          generatedSchema.unshift({ name: 'no', label: 'NO', type: 'number', adminLocked: true, defaultValue: '' });
+        }
+
         let finalLink = ''; let driveId = '';
         try {
           const res = await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
           });
-          if (res.ok) {
-            const googleData = await res.json();
-            finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
-          }
-        } catch (err) {}
-        executeFormCreation(generatedSchema, finalLink, driveId);
+          const googleData = await res.json();
+          if (!res.ok) throw new Error(googleData.error || 'Gagal Membuat File Cloud');
+          
+          finalLink = googleData.spreadsheetUrl; 
+          driveId = googleData.spreadsheetId;
+        } catch (err) {
+          toast.error(`ERROR GOOGLE: ${err.message}. Pastikan Kunci Akun Layanan Google valid!`, { id: toastId, duration: 8000 });
+          setIsProcessing(false);
+          return; // Batalkan pembuatan database jika Google gagal
+        }
+        executeFormCreation(generatedSchema, finalLink, driveId, toastId);
       }
     });
   };
@@ -241,6 +264,7 @@ export default function Settings() {
       complete: async (results) => {
         setIsProcessing(true); const toastId = toast.loading('Gemini AI memvalidasi data...');
         try {
+          if(!genAI) throw new Error("API Key VITE_GEMINI_API_KEY tidak ditemukan!");
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
           const prompt = `Rapikan JSON berikut: ${JSON.stringify(results.data)}. Kapitalisasi nama. NIK angka murni. Kembalikan HANYA array JSON murni tanpa markdown.`;
           const result = await model.generateContent(prompt);
@@ -248,15 +272,17 @@ export default function Settings() {
           const insertPayload = cleanedData.map(row => ({ form_id: selectedFormId, data: row, kabupaten: row.kabupaten || 'Sistem' }));
           await supabase.from('form_responses').insert(insertPayload);
           toast.success('AI Auto-Fill berhasil!', { id: toastId });
-        } catch (err) { toast.error('AI gagal ekstrak.', { id: toastId }); } finally { setIsProcessing(false); e.target.value = null; }
+        } catch (err) { toast.error(`AI Gagal: ${err.message}`, { id: toastId }); } finally { setIsProcessing(false); e.target.value = null; }
       }
     });
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in relative">
+    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in">
+      <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }} />
       <div className="border-b border-gray-800 pb-6"><h1 className="text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon icon={faCog} className="mr-3 text-primary" /> System Control Center</h1></div>
 
+      {/* KONFIGURASI GLOBAL GOOGLE DRIVE */}
       <div className="bg-darker border border-gray-700 p-6 rounded-2xl shadow-xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-green-600"></div>
         <label className="text-xs font-black text-green-400 uppercase tracking-widest block mb-2"><FontAwesomeIcon icon={faFolder} className="mr-2" /> Google Drive Destination Folder ID</label>
@@ -276,41 +302,29 @@ export default function Settings() {
         <form onSubmit={creationMode === 'manual' ? handleCreateManual : creationMode === 'link' ? handleExtractFromLink : (e) => e.preventDefault()} className="space-y-4">
           <input type="text" required placeholder="Judul Form Utama" value={newForm.title} onChange={(e) => setNewForm({...newForm, title: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none" />
           <textarea placeholder="Deskripsi form..." required value={newForm.description} onChange={(e) => setNewForm({...newForm, description: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none h-20 resize-none" />
-          
-          {/* FITUR BARU: Input Batas Waktu Mulai & Selesai */}
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Mulai Buka (Opsional)</label>
-              <input type="datetime-local" value={newForm.start_date} onChange={(e) => setNewForm({...newForm, start_date: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none text-sm" />
-            </div>
-            <div className="flex-1">
-              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Ditutup (Opsional)</label>
-              <input type="datetime-local" value={newForm.end_date} onChange={(e) => setNewForm({...newForm, end_date: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white outline-none text-sm" />
-            </div>
-          </div>
-
           {creationMode === 'link' && <input type="url" required placeholder="Tautan Google Spreadsheet..." value={newForm.link} onChange={(e) => setNewForm({...newForm, link: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white outline-none" />}
           {creationMode === 'file' ? (
-             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark/50 hover:bg-gray-800">
+             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark/50 hover:bg-gray-800 transition-colors">
                <input type="file" accept=".csv" className="hidden" onChange={handleExtractFromFile} disabled={isProcessing || !newForm.title} />
                <FontAwesomeIcon icon={faFileExcel} className="text-3xl text-primary mb-2" />
-               <p className="text-sm font-bold text-gray-300">Unggah CSV untuk Scan Header</p>
+               <p className="text-sm font-bold text-gray-300">Unggah CSV untuk Scan Header & Buat Spreadsheet</p>
              </label>
           ) : (
-            <button type="submit" disabled={isProcessing} className="w-full bg-primary text-darker font-black py-4 rounded-xl uppercase tracking-widest flex justify-center items-center">
-              {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Generate Form'}
+            <button type="submit" disabled={isProcessing} className="w-full bg-primary text-darker font-black py-4 rounded-xl uppercase tracking-widest flex justify-center items-center shadow-lg hover:bg-yellow-500">
+              {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Generate Form & Spreadsheet'}
             </button>
           )}
         </form>
       </div>
 
-      <div className="bg-darker border border-gray-700 p-6 rounded-2xl flex items-center space-x-6">
+      <div className="bg-darker border border-gray-700 p-6 rounded-2xl flex items-center space-x-6 shadow-xl">
         <label className="text-sm font-bold text-gray-400 uppercase tracking-widest min-w-max">Target Form Aktif:</label>
         <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="w-full p-4 rounded-xl bg-dark border border-gray-600 text-white outline-none font-semibold">
           {forms.map(f => <option key={f.id} value={f.id}>{f.title.toUpperCase()}</option>)}
         </select>
       </div>
 
+      {/* CRUD SCHEMA AREA */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="bg-darker border border-gray-700 p-5 md:p-8 rounded-2xl h-fit">
           <h2 className="text-lg font-bold mb-4 text-white uppercase border-b border-gray-800 pb-3 flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-3 text-primary" /> Suntik Kolom Baru</h2>
@@ -323,7 +337,7 @@ export default function Settings() {
             </select>
             {newColumn.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: A, B, C)" value={newColumn.options} onChange={(e) => setNewColumn({...newColumn, options: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white text-sm outline-none h-20" />}
             <input type="text" placeholder="Nilai Bawaan / Default Value" value={newColumn.defaultValue} onChange={(e) => setNewColumn({...newColumn, defaultValue: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-sm outline-none" />
-            <button type="submit" className="w-full bg-gray-800 text-white font-bold py-4 rounded-xl uppercase text-xs">Suntik Struktur Kolom</button>
+            <button type="submit" className="w-full bg-gray-800 text-white font-bold py-4 rounded-xl uppercase text-xs hover:bg-gray-700">Suntik Struktur Kolom</button>
           </form>
         </div>
 
@@ -357,8 +371,8 @@ export default function Settings() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <button onClick={() => handleToggleColumnLock(col.name)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center ${col.adminLocked ? 'bg-red-950/40 text-red-400 border border-red-900/50' : 'bg-green-950/40 text-green-400 border border-green-900/50'}`}><FontAwesomeIcon icon={col.adminLocked ? faLock : faLockOpen} className="mr-1" /> {col.adminLocked ? 'LOCK' : 'OPEN'}</button>
-                      <button onClick={() => startEditColumn(col)} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px]"><FontAwesomeIcon icon={faEdit}/></button>
-                      <button onClick={() => handleDeleteColumn(col.name)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-[10px]"><FontAwesomeIcon icon={faTrash}/></button>
+                      <button onClick={() => startEditColumn(col)} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] hover:bg-blue-900 hover:text-white"><FontAwesomeIcon icon={faEdit}/></button>
+                      <button onClick={() => handleDeleteColumn(col.name)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-[10px] hover:bg-red-900 hover:text-red-400"><FontAwesomeIcon icon={faTrash}/></button>
                     </div>
                   </div>
                 )}
@@ -368,21 +382,21 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="bg-darker border border-gray-700 p-8 rounded-2xl relative">
+      <div className="bg-darker border border-gray-700 p-8 rounded-2xl relative shadow-xl">
         <h2 className="text-xl font-black mb-2 text-white uppercase flex items-center"><FontAwesomeIcon icon={faRobot} className="mr-3 text-primary" /> Gemini AI Auto-Fill Data</h2>
         <p className="text-gray-400 mb-6 text-sm">Upload file data mentah. AI akan menyelaraskan data dengan form aktif secara cerdas.</p>
-        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark hover:bg-gray-800">
+        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark hover:bg-gray-800 transition-colors">
           <input type="file" accept=".csv" className="hidden" onChange={handleGeminiUpload} />
           <FontAwesomeIcon icon={faUpload} className="text-3xl text-primary mb-3" />
         </label>
       </div>
 
       <div className="bg-darker border border-gray-700 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="p-6 bg-dark border-b border-gray-700 flex items-center"><FontAwesomeIcon icon={faCloud} className="text-xl text-primary mr-4" /><h3 className="font-bold text-white uppercase text-sm">Daftar Link Distribusi</h3></div>
+        <div className="p-6 bg-dark border-b border-gray-700 flex items-center"><FontAwesomeIcon icon={faCloud} className="text-xl text-primary mr-4" /><h3 className="font-bold text-white uppercase text-sm">Daftar Link Distribusi & Spreadsheet</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-dark/50 text-gray-400 text-xs uppercase border-b border-gray-800">
-              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Aksi / Link</th></tr>
+              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Link Publik</th><th className="p-5 text-right">Aksi</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {forms.map(f => {
@@ -390,22 +404,12 @@ export default function Settings() {
                 const isActive = f.is_active !== false;
                 return (
                   <tr key={f.id} className="hover:bg-gray-800/40">
-                    <td className="p-5 font-bold text-gray-200">
-                      {f.title}
-                      {/* FITUR BARU: Indikator Jadwal di Tabel */}
-                      {(f.start_date || f.end_date) && (
-                        <div className="text-[10px] text-yellow-500 font-mono mt-1 mt-1">
-                          {f.start_date ? new Date(f.start_date).toLocaleString('id-ID') : 'Sekarang'} s/d {f.end_date ? new Date(f.end_date).toLocaleString('id-ID') : 'Selamanya'}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20' : 'text-red-400 border-red-500/20'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
-                    <td className="p-5 flex justify-end space-x-2 items-center">
-                      {/* FITUR BARU: Tombol Edit Jadwal */}
-                      <button type="button" onClick={() => setScheduleModal({ show: true, id: f.id, title: f.title, start_date: f.start_date || '', end_date: f.end_date || '' })} className="px-3 py-2 bg-blue-900/40 text-blue-400 border border-blue-900/50 font-bold rounded-lg text-[10px] uppercase transition-colors hover:bg-blue-600 hover:text-white"><FontAwesomeIcon icon={faCalendarAlt} className="mr-1" /> Waktu</button>
-                      <button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button>
-                      {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" className="p-2.5 bg-gray-800 text-primary rounded-lg"><FontAwesomeIcon icon={faEye} /></a>}
-                      <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 rounded-lg"><FontAwesomeIcon icon={faTrash} /></button>
+                    <td className="p-5 font-bold text-gray-200">{f.title}</td>
+                    <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20 hover:bg-green-900/40' : 'text-red-400 border-red-500/20 hover:bg-red-900/40'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
+                    <td className="p-5 text-center"><button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary hover:bg-yellow-500 text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button></td>
+                    <td className="p-5 flex justify-end space-x-2">
+                      {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" title="Buka Spreadsheet Google Drive" className="p-2.5 bg-gray-800 text-primary hover:bg-gray-700 rounded-lg"><FontAwesomeIcon icon={faEye} /></a>}
+                      <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FontAwesomeIcon icon={faTrash} /></button>
                     </td>
                   </tr>
                 )
@@ -414,31 +418,6 @@ export default function Settings() {
           </table>
         </div>
       </div>
-
-      {/* FITUR BARU: Modal Edit Jadwal Murni */}
-      {scheduleModal.show && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-          <div className="bg-darker border border-primary/30 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
-            <h3 className="text-xl font-bold text-white mb-2"><FontAwesomeIcon icon={faCalendarAlt} className="mr-2 text-primary" /> Atur Jadwal Form</h3>
-            <p className="text-xs text-gray-400 mb-6 border-b border-white/10 pb-3">{scheduleModal.title}</p>
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Mulai Buka (Kosongkan jika bebas)</label>
-                <input type="datetime-local" value={scheduleModal.start_date} onChange={(e) => setScheduleModal({...scheduleModal, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-dark border border-gray-600 text-white outline-none text-sm" />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Waktu Ditutup (Kosongkan jika bebas)</label>
-                <input type="datetime-local" value={scheduleModal.end_date} onChange={(e) => setScheduleModal({...scheduleModal, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-dark border border-gray-600 text-white outline-none text-sm" />
-              </div>
-            </div>
-            <div className="flex justify-end space-x-3 mt-8">
-              <button onClick={() => setScheduleModal({ show: false, id: null, start_date: '', end_date: '', title: '' })} className="px-5 py-2.5 bg-gray-800 text-white font-bold rounded-xl text-xs">Batal</button>
-              <button onClick={handleSaveSchedule} className="px-5 py-2.5 bg-primary text-black font-black uppercase rounded-xl text-xs">Simpan Jadwal</button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
