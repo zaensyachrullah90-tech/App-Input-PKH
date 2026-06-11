@@ -3,7 +3,27 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faCheckCircle, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faClock } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash } from '@fortawesome/free-solid-svg-icons';
+
+// ==========================================
+// PANGKALAN DATA WILAYAH (SMART MAPPING)
+// ==========================================
+const DATA_WILAYAH = {
+  "TAPIN": {
+    "BINUANG": ["BINUANG", "KARANGAN PUTIH", "A. YANI PURA", "PULAU PINANG", "PULAU PINANG UTARA", "TUNGKAP", "GUNUNG BATU", "PADANG SARI", "MEKAR SARI", "HAUR KUNING"],
+    "BUNGUR": ["BUNGUR", "BUNGUR BARU", "BANUA PADANG", "BANUA PADANG HILIR", "KALUMPANG", "LINUH", "PURUT", "RANTAU BUJUR", "SHABAH", "HANGKUI", "TAMPINAS", "BINGKULU"],
+    "BAKARANGAN": ["BAKARANGAN", "BAKARANGAN TINGGI", "BUNDUNG", "PARIGI", "GADUNG", "GADUNG KERAMAT", "TANGKUTAN", "WARINGIN", "KETAPANG"],
+    "CANDI LARAS SELATAN": ["MARGUSARI", "BERINGIN", "BERINGIN A", "BUNUN RAYA", "CANDI LARAS", "BAUN BANGO", "PABAUNGAN HILIR", "PABAUNGAN HULU", "SUNGAI RUTAS"],
+    "CANDI LARAS UTARA": ["MARGASARI HILIR", "MARGASARI HULU", "KELADAN", "PARIGI", "BUBUHAN JATI", "BATALAS", "RAWA MUNING", "SUNGAI SALAI", "TELUK HAWAN"],
+    "HATUNGUN": ["HATUNGUN", "KAMBINCIS", "TARUNGIN", "MATANG BATAS", "ASAM RANDAH", "BATU HAPU", "BURUAN", "PANDULANGAN"],
+    "LOKPAIKAT": ["LOKPAIKAT", "BITAHAN", "BITAHAN BARU", "BINDANG", "AYUNAN PANGON", "BUDI MULYA"],
+    "PIANI": ["MIAWA", "BARAMBAN", "BATU AMPAR", "HARAKIT", "PIPITAK JAYA", "BALAWAIN", "BUNIIN", "KAMPUNG BARU"],
+    "SALAM BABARIS": ["SALAM BABARIS", "KAMBANG KUNING", "SUKA RAMAI", "PANTAI CABE", "SUWA TANI", "SUWA LAMA"],
+    "TAPIN SELATAN": ["TAMBARANGAN", "RUMINTIN", "LAWASAN", "TANDUI", "SUADENG", "HARAPAN MASA", "SAWAHAN", "TIMBAAN", "TATAKAN", "CEMPAKA", "MARGA SARI"],
+    "TAPIN TENGAH": ["KEPALA BATAS", "MANDURIAN", "MANDURIAN HILIR", "SUKAMAI", "TIRIK", "BATANG LANTIK", "PANDAHAN", "SERAWI", "HULU KELANG", "SUNGAI BAHALANG"],
+    "TAPIN UTARA": ["RANTAU KANAN", "RANTAU KIWA", "RANGDA MALINGKUNG", "KUPANG", "PERINTIS RAYA", "ANTASAN SENOR", "BANUA HALAT KIRI", "BANUA HALAT KANAN", "KAKARAN", "SUNGAI ULIN"]
+  }
+};
 
 export default function PublicForm() {
   const { id: formId } = useParams();
@@ -62,12 +82,28 @@ export default function PublicForm() {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
 
+    // Formatting Logic
     if (field.type === 'currency') {
       value = value ? formatRupiah(value) : '';
     } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
       value = value.toUpperCase();
     }
-    setFormData({ ...formData, [field.name]: value });
+
+    let newFormData = { ...formData, [field.name]: value };
+
+    // ==========================================
+    // AUTO FILTER: CASCADE RESET
+    // ==========================================
+    if (name === 'kabupaten') {
+      newFormData['kecamatan'] = '';
+      newFormData['desa'] = '';
+      newFormData['kelurahan'] = ''; // Berjaga-jaga jika Admin menamai kolom 'kelurahan'
+    } else if (name === 'kecamatan') {
+      newFormData['desa'] = '';
+      newFormData['kelurahan'] = '';
+    }
+
+    setFormData(newFormData);
   };
 
   const handleFileChange = (e, fieldName) => {
@@ -114,7 +150,7 @@ export default function PublicForm() {
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
       } else {
-        await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: 'Publik' }]);
+        await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: finalData.kabupaten || 'Publik' }]);
       }
 
       if (formConfig?.spreadsheet_id && !editingId) {
@@ -162,44 +198,15 @@ export default function PublicForm() {
     }
   };
 
-  // FITUR BARU: Logika Pengecekan Batas Waktu
-  const isFormExpiredOrEarly = () => {
-    if (!formConfig) return false;
-    const now = new Date();
-    if (formConfig.start_date && now < new Date(formConfig.start_date)) return true;
-    if (formConfig.end_date && now > new Date(formConfig.end_date)) return true;
-    return false;
-  };
-
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Form Publik...</p></div>;
-  
   if (formConfig?.is_active === false) return (
     <div className="min-h-screen bg-[#030712] flex justify-center items-center p-6 text-center">
       <div className="bg-[#0f172a] border border-white/5 p-8 rounded-3xl max-w-md w-full"><FontAwesomeIcon icon={faLock} className="text-5xl text-gray-600 mb-6" /><h2 className="text-xl font-black text-white mb-2 uppercase">Pengisian Ditutup</h2></div>
     </div>
   );
 
-  // FITUR BARU: Render khusus jika di luar batas waktu
-  if (isFormExpiredOrEarly()) return (
-    <div className="min-h-screen bg-[#030712] flex justify-center items-center p-6 text-center">
-      <div className="bg-[#0f172a] border border-white/5 p-8 rounded-3xl max-w-md w-full">
-        <FontAwesomeIcon icon={faClock} className="text-5xl text-yellow-600 mb-6" />
-        <h2 className="text-xl font-black text-white mb-2 uppercase">Waktu Akses Tidak Berlaku</h2>
-        <p className="text-gray-400 text-sm">Formulir ini dibatasi oleh waktu (belum dimulai atau sudah ditutup). Hubungi Administrator.</p>
-      </div>
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-3 md:p-6 flex justify-center items-start pt-4 relative overflow-hidden">
-      
-      {/* FITUR BARU: Style wajib untuk Menyembunyikan Tanggal saat di-Print */}
-      <style>{`
-        @media print {
-          .print-hidden-log { display: none !important; }
-        }
-      `}</style>
-
       <Toaster position="top-center" toastOptions={{ style: { background: '#111827', color: '#fff', borderRadius: '16px', border: '1px solid #374151' } }} />
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-yellow-600/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -270,7 +277,29 @@ export default function PublicForm() {
                               required={!finalLockedStatus && !editingId}
                            >
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
-                              {field.options?.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>)}
+                              {(() => {
+                                // ==========================================
+                                // LOGIKA AUTO-FILTER DROPDOWN DINAMIS
+                                // ==========================================
+                                let selectOptions = field.options || [];
+                                
+                                if (colNameLower === 'kabupaten') {
+                                  selectOptions = Object.keys(DATA_WILAYAH);
+                                } else if (colNameLower === 'kecamatan') {
+                                  const kab = formData['kabupaten'] || formData['KABUPATEN'];
+                                  if (kab && DATA_WILAYAH[kab]) {
+                                    selectOptions = Object.keys(DATA_WILAYAH[kab]);
+                                  }
+                                } else if (colNameLower === 'desa' || colNameLower === 'kelurahan') {
+                                  const kab = formData['kabupaten'] || formData['KABUPATEN'];
+                                  const kec = formData['kecamatan'] || formData['KECAMATAN'];
+                                  if (kab && kec && DATA_WILAYAH[kab] && DATA_WILAYAH[kab][kec]) {
+                                    selectOptions = DATA_WILAYAH[kab][kec];
+                                  }
+                                }
+
+                                return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
+                              })()}
                            </select>
                            <FontAwesomeIcon icon={faChevronDown} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         </div>
@@ -307,8 +336,7 @@ export default function PublicForm() {
                 <div key={res.id} className="bg-black/40 border border-white/5 p-4 rounded-xl flex justify-between items-center text-xs hover:border-white/20 transition-all duration-300 group">
                   <div>
                     <div className="font-bold text-gray-200 uppercase">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
-                    {/* FITUR BARU: Tambahan class "print-hidden-log" di baris ini untuk menghilangkan log tanggal saat di print */}
-                    <div className="text-[10px] text-gray-500 font-mono mt-1 print-hidden-log">{new Date(res.created_at).toLocaleString('id-ID')}</div>
+                    <div className="text-[10px] text-gray-500 font-mono mt-1">{new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
                   <div className="flex items-center space-x-2">
