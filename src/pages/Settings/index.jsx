@@ -74,7 +74,7 @@ export default function Settings() {
         is_active: true 
       }]);
       if (error) throw error;
-      toast.success('Sistem Cerdas Berhasil Di-Generate!', { id: toastId });
+      toast.success('Smart Form Berhasil Di-Generate!', { id: toastId });
       setNewForm({ title: '', description: '', link: '' });
       fetchForms();
     } catch (err) { 
@@ -85,12 +85,12 @@ export default function Settings() {
   };
 
   // ==========================================
-  // PERBAIKAN: STRICT SPREADSHEET CREATION (WAJIB GOOGLE DRIVE)
+  // PERBAIKAN: HYBRID SMART FORM (DB LOKAL + GOOGLE JIKA ADA)
   // ==========================================
   const handleCreateManual = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
-    const toastId = toast.loading('Memerintahkan Google Drive Membuat Spreadsheet...');
+    const toastId = toast.loading('Membangun Smart Form...');
     let finalLink = ''; let driveId = '';
     
     const schema = [
@@ -106,19 +106,16 @@ export default function Settings() {
       
       const googleData = await res.json();
       
-      if (!res.ok) {
-        throw new Error(googleData.error || googleData.message || 'Koneksi ke Google API Gagal.');
+      if (res.ok && googleData.spreadsheetId) {
+        finalLink = googleData.spreadsheetUrl; 
+        driveId = googleData.spreadsheetId;
+        toast.loading('Google Sheet Terhubung. Menyimpan Database...', { id: toastId });
+      } else {
+        throw new Error('Google Drive Bypass');
       }
-
-      finalLink = googleData.spreadsheetUrl; 
-      driveId = googleData.spreadsheetId;
-      toast.loading('Spreadsheet Terbuat! Menyimpan ke Database...', { id: toastId });
-      
     } catch (err) { 
-      // Jika Google gagal, form TIDAK AKAN DIBUAT dan pesan error asli akan muncul.
-      toast.error(`ERROR GOOGLE: ${err.message}. Pastikan Kunci Akun Layanan Google di Vercel sudah benar!`, { id: toastId, duration: 8000 });
-      setIsProcessing(false);
-      return; // Berhenti total
+      // JIKA GOOGLE GAGAL/TIDAK DISETTING, TETAP BUAT FORM DI DATABASE LOKAL
+      toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId });
     }
 
     executeFormCreation(schema, finalLink, driveId, toastId);
@@ -160,13 +157,13 @@ export default function Settings() {
   };
 
   // ==========================================
-  // PERBAIKAN: STRICT SPREADSHEET CREATION VIA FILE CSV
+  // PERBAIKAN: HYBRID EXTRACT FROM FILE
   // ==========================================
   const handleExtractFromFile = (e) => {
     const file = e.target.files[0];
     if (!file || !newForm.title) return toast.error('Isi judul form terlebih dahulu!');
     setIsProcessing(true); 
-    const toastId = toast.loading('Memproses File Upload & Membuat Spreadsheet Google...');
+    const toastId = toast.loading('Memproses File Upload & Membaca Skema...');
     
     Papa.parse(file, {
       header: false, skipEmptyLines: true,
@@ -194,14 +191,14 @@ export default function Settings() {
             body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
           });
           const googleData = await res.json();
-          if (!res.ok) throw new Error(googleData.error || 'Gagal Membuat File Cloud');
-          
-          finalLink = googleData.spreadsheetUrl; 
-          driveId = googleData.spreadsheetId;
+          if (res.ok && googleData.spreadsheetId) {
+            finalLink = googleData.spreadsheetUrl; 
+            driveId = googleData.spreadsheetId;
+          } else {
+             throw new Error('Google Bypass');
+          }
         } catch (err) {
-          toast.error(`ERROR GOOGLE: ${err.message}. Pastikan Kunci Akun Layanan Google valid!`, { id: toastId, duration: 8000 });
-          setIsProcessing(false);
-          return; // Batalkan pembuatan database jika Google gagal
+          toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId });
         }
         executeFormCreation(generatedSchema, finalLink, driveId, toastId);
       }
@@ -307,11 +304,11 @@ export default function Settings() {
              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark/50 hover:bg-gray-800 transition-colors">
                <input type="file" accept=".csv" className="hidden" onChange={handleExtractFromFile} disabled={isProcessing || !newForm.title} />
                <FontAwesomeIcon icon={faFileExcel} className="text-3xl text-primary mb-2" />
-               <p className="text-sm font-bold text-gray-300">Unggah CSV untuk Scan Header & Buat Spreadsheet</p>
+               <p className="text-sm font-bold text-gray-300">Unggah CSV untuk Scan Header & Buat Form</p>
              </label>
           ) : (
             <button type="submit" disabled={isProcessing} className="w-full bg-primary text-darker font-black py-4 rounded-xl uppercase tracking-widest flex justify-center items-center shadow-lg hover:bg-yellow-500">
-              {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Generate Form & Spreadsheet'}
+              {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Generate Form'}
             </button>
           )}
         </form>
