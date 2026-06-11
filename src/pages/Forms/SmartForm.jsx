@@ -5,6 +5,26 @@ import toast from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faArrowLeft, faUpload, faLock, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 
+// ==========================================
+// PANGKALAN DATA WILAYAH (SMART MAPPING)
+// ==========================================
+const DATA_WILAYAH = {
+  "TAPIN": {
+    "BINUANG": ["BINUANG", "KARANGAN PUTIH", "A. YANI PURA", "PULAU PINANG", "PULAU PINANG UTARA", "TUNGKAP", "GUNUNG BATU", "PADANG SARI", "MEKAR SARI", "HAUR KUNING"],
+    "BUNGUR": ["BUNGUR", "BUNGUR BARU", "BANUA PADANG", "BANUA PADANG HILIR", "KALUMPANG", "LINUH", "PURUT", "RANTAU BUJUR", "SHABAH", "HANGKUI", "TAMPINAS", "BINGKULU"],
+    "BAKARANGAN": ["BAKARANGAN", "BAKARANGAN TINGGI", "BUNDUNG", "PARIGI", "GADUNG", "GADUNG KERAMAT", "TANGKUTAN", "WARINGIN", "KETAPANG"],
+    "CANDI LARAS SELATAN": ["MARGUSARI", "BERINGIN", "BERINGIN A", "BUNUN RAYA", "CANDI LARAS", "BAUN BANGO", "PABAUNGAN HILIR", "PABAUNGAN HULU", "SUNGAI RUTAS"],
+    "CANDI LARAS UTARA": ["MARGASARI HILIR", "MARGASARI HULU", "KELADAN", "PARIGI", "BUBUHAN JATI", "BATALAS", "RAWA MUNING", "SUNGAI SALAI", "TELUK HAWAN"],
+    "HATUNGUN": ["HATUNGUN", "KAMBINCIS", "TARUNGIN", "MATANG BATAS", "ASAM RANDAH", "BATU HAPU", "BURUAN", "PANDULANGAN"],
+    "LOKPAIKAT": ["LOKPAIKAT", "BITAHAN", "BITAHAN BARU", "BINDANG", "AYUNAN PANGON", "BUDI MULYA"],
+    "PIANI": ["MIAWA", "BARAMBAN", "BATU AMPAR", "HARAKIT", "PIPITAK JAYA", "BALAWAIN", "BUNIIN", "KAMPUNG BARU"],
+    "SALAM BABARIS": ["SALAM BABARIS", "KAMBANG KUNING", "SUKA RAMAI", "PANTAI CABE", "SUWA TANI", "SUWA LAMA"],
+    "TAPIN SELATAN": ["TAMBARANGAN", "RUMINTIN", "LAWASAN", "TANDUI", "SUADENG", "HARAPAN MASA", "SAWAHAN", "TIMBAAN", "TATAKAN", "CEMPAKA", "MARGA SARI"],
+    "TAPIN TENGAH": ["KEPALA BATAS", "MANDURIAN", "MANDURIAN HILIR", "SUKAMAI", "TIRIK", "BATANG LANTIK", "PANDAHAN", "SERAWI", "HULU KELANG", "SUNGAI BAHALANG"],
+    "TAPIN UTARA": ["RANTAU KANAN", "RANTAU KIWA", "RANGDA MALINGKUNG", "KUPANG", "PERINTIS RAYA", "ANTASAN SENOR", "BANUA HALAT KIRI", "BANUA HALAT KANAN", "KAKARAN", "SUNGAI ULIN"]
+  }
+};
+
 export default function SmartForm({ userProfile }) {
   const { id: formId } = useParams();
   const navigate = useNavigate();
@@ -33,11 +53,8 @@ export default function SmartForm({ userProfile }) {
         });
         setFormData(initialData);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } 
+    finally { setLoading(false); }
   };
 
   const formatRupiah = (angka) => {
@@ -59,7 +76,22 @@ export default function SmartForm({ userProfile }) {
     } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
       value = value.toUpperCase();
     }
-    setFormData({ ...formData, [field.name]: value });
+    
+    let newFormData = { ...formData, [field.name]: value };
+
+    // ==========================================
+    // AUTO FILTER CASCADE LOGIC UNTUK ADMIN
+    // ==========================================
+    if (name === 'kabupaten') {
+      newFormData['kecamatan'] = '';
+      newFormData['desa'] = '';
+      newFormData['kelurahan'] = '';
+    } else if (name === 'kecamatan') {
+      newFormData['desa'] = '';
+      newFormData['kelurahan'] = '';
+    }
+
+    setFormData(newFormData);
   };
 
   const handleFileChange = (e, fieldName) => {
@@ -80,7 +112,6 @@ export default function SmartForm({ userProfile }) {
     let finalData = { ...formData };
 
     try {
-      // UPLOAD FILE GOOGLE DRIVE
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
           toast.loading(`Menaikkan berkas...`, { id: toastId });
@@ -97,13 +128,11 @@ export default function SmartForm({ userProfile }) {
 
       toast.loading('Menyimpan ke Database...', { id: toastId });
       
-      // INSERT MURNI (TANPA UPSERT ONCONFLICT MENGHINDARI ERROR 400)
       const { error: dbError } = await supabase.from('form_responses').insert([{ 
-          form_id: formId, user_id: userProfile?.id || null, data: finalData, kabupaten: 'Admin'
+          form_id: formId, user_id: userProfile?.id || null, data: finalData, kabupaten: finalData.kabupaten || 'Admin'
       }]);
       if (dbError) throw dbError;
 
-      // SYNC SPREADSHEET
       if (formConfig?.spreadsheet_id) {
         toast.loading('Sinkronisasi Google Sheets...', { id: toastId });
         try {
@@ -115,10 +144,8 @@ export default function SmartForm({ userProfile }) {
       }
 
       toast.success('Arsip Berhasil Diamankan!', { id: toastId });
-      fetchFormSetup(); // Reset Form
-    } catch (err) { 
-      toast.error('Gagal menyimpan.', { id: toastId }); 
-    }
+      fetchFormSetup(); 
+    } catch (err) { toast.error('Gagal menyimpan.', { id: toastId }); }
   };
 
   if (loading) return <div className="flex justify-center h-64"><FontAwesomeIcon icon={faSpinner} spin size="3x" className="text-primary mt-20" /></div>;
@@ -137,6 +164,7 @@ export default function SmartForm({ userProfile }) {
         <form onSubmit={handleSubmit} className="space-y-6 pt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {schema.map((field) => {
+              const colNameLower = field.name.toLowerCase();
               const isFile = field.type === 'file';
               const isSelect = field.type === 'select';
               const isCurrency = field.type === 'currency';
@@ -155,7 +183,26 @@ export default function SmartForm({ userProfile }) {
                     <div className="relative">
                       <select name={field.name} value={formData[field.name] || ''} onChange={(e) => handleInputChange(e, field)} className="w-full p-3.5 rounded-xl border bg-dark/80 text-white border-gray-600 focus:border-primary text-sm appearance-none">
                         <option value="" disabled>-- Pilih {field.label} --</option>
-                        {field.options?.map(opt => <option key={opt} value={opt} className="bg-darker">{opt}</option>)}
+                        {(() => {
+                           let selectOptions = field.options || [];
+                           
+                           if (colNameLower === 'kabupaten') {
+                             selectOptions = Object.keys(DATA_WILAYAH);
+                           } else if (colNameLower === 'kecamatan') {
+                             const kab = formData['kabupaten'] || formData['KABUPATEN'];
+                             if (kab && DATA_WILAYAH[kab]) {
+                               selectOptions = Object.keys(DATA_WILAYAH[kab]);
+                             }
+                           } else if (colNameLower === 'desa' || colNameLower === 'kelurahan') {
+                             const kab = formData['kabupaten'] || formData['KABUPATEN'];
+                             const kec = formData['kecamatan'] || formData['KECAMATAN'];
+                             if (kab && kec && DATA_WILAYAH[kab] && DATA_WILAYAH[kab][kec]) {
+                               selectOptions = DATA_WILAYAH[kab][kec];
+                             }
+                           }
+
+                           return selectOptions.map(opt => <option key={opt} value={opt} className="bg-darker">{opt}</option>);
+                        })()}
                       </select>
                       <FontAwesomeIcon icon={faChevronDown} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                     </div>
