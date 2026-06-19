@@ -5,9 +5,6 @@ import toast from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faArrowLeft, faUpload, faLock, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 
-// ==========================================
-// PANGKALAN DATA WILAYAH (SMART MAPPING)
-// ==========================================
 const DATA_WILAYAH = {
   "TAPIN": {
     "BINUANG": ["BINUANG", "KARANGAN PUTIH", "A. YANI PURA", "PULAU PINANG", "PULAU PINANG UTARA", "TUNGKAP", "GUNUNG BATU", "PADANG SARI", "MEKAR SARI", "HAUR KUNING"],
@@ -79,16 +76,18 @@ export default function SmartForm({ userProfile }) {
     
     let newFormData = { ...formData, [field.name]: value };
 
-    // ==========================================
-    // AUTO FILTER CASCADE LOGIC UNTUK ADMIN
-    // ==========================================
-    if (name === 'kabupaten') {
-      newFormData['kecamatan'] = '';
-      newFormData['desa'] = '';
-      newFormData['kelurahan'] = '';
-    } else if (name === 'kecamatan') {
-      newFormData['desa'] = '';
-      newFormData['kelurahan'] = '';
+    if (name.includes('kabupaten')) {
+      Object.keys(newFormData).forEach(k => {
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
+      });
+    } else if (name.includes('kecamatan')) {
+      Object.keys(newFormData).forEach(k => {
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
+      });
     }
 
     setFormData(newFormData);
@@ -128,8 +127,11 @@ export default function SmartForm({ userProfile }) {
 
       toast.loading('Menyimpan ke Database...', { id: toastId });
       
+      const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+      const kabupatenVal = kabKey ? finalData[kabKey] : 'Admin';
+
       const { error: dbError } = await supabase.from('form_responses').insert([{ 
-          form_id: formId, user_id: userProfile?.id || null, data: finalData, kabupaten: finalData.kabupaten || 'Admin'
+          form_id: formId, user_id: userProfile?.id || null, data: finalData, kabupaten: kabupatenVal
       }]);
       if (dbError) throw dbError;
 
@@ -186,18 +188,21 @@ export default function SmartForm({ userProfile }) {
                         {(() => {
                            let selectOptions = field.options || [];
                            
-                           if (colNameLower === 'kabupaten') {
+                           if (colNameLower.includes('kabupaten')) {
                              selectOptions = Object.keys(DATA_WILAYAH);
-                           } else if (colNameLower === 'kecamatan') {
-                             const kab = formData['kabupaten'] || formData['KABUPATEN'];
-                             if (kab && DATA_WILAYAH[kab]) {
-                               selectOptions = Object.keys(DATA_WILAYAH[kab]);
+                           } else if (colNameLower.includes('kecamatan')) {
+                             const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
+                             const kabVal = kabKey ? formData[kabKey] : null;
+                             if (kabVal && DATA_WILAYAH[kabVal]) {
+                               selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
                              }
-                           } else if (colNameLower === 'desa' || colNameLower === 'kelurahan') {
-                             const kab = formData['kabupaten'] || formData['KABUPATEN'];
-                             const kec = formData['kecamatan'] || formData['KECAMATAN'];
-                             if (kab && kec && DATA_WILAYAH[kab] && DATA_WILAYAH[kab][kec]) {
-                               selectOptions = DATA_WILAYAH[kab][kec];
+                           } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
+                             const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
+                             const kecKey = Object.keys(formData).find(k => k.toLowerCase().includes('kecamatan'));
+                             const kabVal = kabKey ? formData[kabKey] : null;
+                             const kecVal = kecKey ? formData[kecKey] : null;
+                             if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) {
+                               selectOptions = DATA_WILAYAH[kabVal][kecVal];
                              }
                            }
 
