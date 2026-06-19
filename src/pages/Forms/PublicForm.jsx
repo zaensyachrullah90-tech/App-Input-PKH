@@ -3,7 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -34,19 +34,22 @@ export default function PublicForm() {
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
-
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
-  
-  // STATE BARU: INDIKATOR PUSAT SAVE TENGAN LAYAR MUTLAK
   const [isSaving, setIsSaving] = useState(false);
 
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
+  // SINKRONISASI TAB DENGAN URL MENGGUNAKAN PUSH STATE
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('tab') === 'results') setActiveTab('results');
   }, [location.search]);
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    window.history.replaceState(null, '', `?tab=${tab}`);
+  };
 
   useEffect(() => {
     if (formId) { fetchFormSetup(); fetchResponses(); }
@@ -109,7 +112,6 @@ export default function PublicForm() {
         if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     }
-
     setFormData(newFormData);
   };
 
@@ -120,21 +122,52 @@ export default function PublicForm() {
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
   };
 
-  const convertFileToBase64 = (file) => {
+  // =========================================================================
+  // PENYEMPURNAAN MUTLAK: SMART IMAGE COMPRESSOR & BASE64 CONVERTER
+  // MENCEGAH TIMEOUT VERCEL SECARA INSTAN!
+  // =========================================================================
+  const compressImage = (file) => {
     return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        // Jika PDF atau file lain, tidak dikompres, langsung base64
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = error => reject(error);
+        return;
+      }
+      // Jika Gambar/Foto HP (Kompresi 60% via Canvas)
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200; const MAX_HEIGHT = 1200;
+          let width = img.width; let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+          } else {
+            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+          }
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.6); // Kompresi JPEG 60%
+          resolve(dataUrl.split(',')[1]);
+        };
+      };
       reader.onerror = error => reject(error);
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formConfig?.is_active === false) return toast.error('Penerimaan berkas formulir telah ditutup.');
+    if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     if (!formId) return toast.error('Form ID tidak terdeteksi.');
     
-    // AKTIFKAN OVERLAY PUSAT
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
@@ -145,107 +178,89 @@ export default function PublicForm() {
     });
 
     try {
-      // PROSES PARALEL SINKRONISASI BERKAS KE DRIVE DENGAN PENANGKAP ERROR
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
-            const base64String = await convertFileToBase64(fileObject);
+            const base64String = await compressImage(fileObject); // PANGGIL KOMPRESOR CERDAS
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                action: 'uploadFile', 
-                fileName: fileObject.name, 
-                mimeType: fileObject.type, 
-                base64Data: base64String, 
-                folderId: globalFolderId 
-              })
+              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
-            
             const driveData = await res.json();
-            if(res.ok && driveData.link) {
-              finalData[key] = driveData.link;
-            } else {
-              throw new Error(driveData.error || 'Server Vercel Timeout');
-            }
-          } catch(err) {
-            console.error("Upload Failed:", err);
-            finalData[key] = `GAGAL UPLOAD (Sistem Menolak)`; 
-          }
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error('Vercel Timeout'); }
+          } catch(err) { finalData[key] = `GAGAL UPLOAD (TIMEOUT)`; }
         }
       });
-
       await Promise.all(uploadPromises);
 
+      // REALTIME UPDATE TANPA LOADING ULANG
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
+        fetchResponses();
       } else {
         const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
         const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
-        await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]);
+        const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
+        if (insertedData) {
+          setResponses(prev => [insertedData, ...prev]);
+        } else {
+          fetchResponses();
+        }
       }
 
-      // ASINKRONUS BYPASS: Kirim data ke Spreadsheet
+      // BYPASS SHEET SINKRONISASI
       if (formConfig?.spreadsheet_id && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        }).catch(e => console.error("Sheet background error:", e));
+        }).catch(e => console.error("Sheet error:", e));
       }
 
-      toast.success('Perekaman Berhasil Terkirim!');
-      
+      toast.success('Data Berhasil Direkam!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
       
-      setFormData(resetData);
-      setRawFiles({});
-      setEditingId(null);
-      fetchResponses();
-      setActiveTab('results'); 
-    } catch (err) { 
-      toast.error('Gagal mengirim data sistem.'); 
-    } finally {
-      setIsSaving(false); 
-    }
+      setFormData(resetData); setRawFiles({}); setEditingId(null);
+      handleTabSwitch('results'); 
+    } catch (err) { toast.error('Gagal merekam data.'); } 
+    finally { setIsSaving(false); }
   };
 
   const handleEdit = (responseItem) => {
     setRegistrationNo(responseItem.data.nomor_registrasi || `EDIT-${responseItem.id.substring(0,4)}`);
     setFormData(responseItem.data);
     setEditingId(responseItem.id);
-    setActiveTab('input');
+    handleTabSwitch('input');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleRequestDelete = async (responseItem) => {
     if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
-    const toastId = toast.loading('Mengirim permohonan ke Pusat...');
+    const toastId = toast.loading('Mengirim permohonan...');
     try {
       const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
       await supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id);
-      toast.success('Permohonan penghapusan terkirim! Menunggu konfirmasi Admin.', { id: toastId });
+      toast.success('Permohonan terkirim!', { id: toastId });
       fetchResponses();
-    } catch (err) {
-      toast.error('Gagal mengajukan permohonan.', { id: toastId });
-    }
+    } catch (err) { toast.error('Gagal.', { id: toastId }); }
   };
 
-  if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
+  if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem...</p></div>;
 
   return (
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-2 sm:p-4 md:p-6 flex justify-center items-start pt-4 md:pt-10 relative overflow-hidden">
       <Toaster position="top-center" toastOptions={{ style: { background: '#111827', color: '#fff', borderRadius: '16px', border: '1px solid #374151' } }} />
       
-      {/* OVERLAY LOADING PUSAT MUTLAK */}
       {isSaving && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan & Menghubungkan ke Drive...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Mohon tunggu, proses memakan waktu 1-3 detik.</p>
+            <p className="text-gray-500 text-[10px] mt-2">Upload kilat sedang berlangsung...</p>
           </div>
         </div>
       )}
@@ -261,11 +276,11 @@ export default function PublicForm() {
         </div>
 
         <div className="flex flex-col sm:flex-row bg-black/40 p-1.5 rounded-2xl border border-white/5 mb-6 md:mb-8 gap-2">
-          <button onClick={() => setActiveTab('input')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'input' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
+          <button onClick={() => handleTabSwitch('input')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'input' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
-          <button onClick={() => setActiveTab('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
+          <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Lacak
           </button>
         </div>
 
@@ -274,7 +289,7 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
-              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Proses pengisian berkas untuk modul ini telah dinonaktifkan oleh Administrator. Anda **tetap dapat melacak hasil tindak lanjut verifikasi** melalui tab <strong className="text-primary cursor-pointer hover:underline" onClick={() => setActiveTab('results')}>Dashboard Publik</strong> di atas.</p>
+              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir ini dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut verifikasi</strong> Anda pada tab Dashboard Publik.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
@@ -320,7 +335,7 @@ export default function PublicForm() {
                           <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={finalLockedStatus} className="hidden" id={`file-${field.name}`}/>
                           <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${finalLockedStatus ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
-                            <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
+                            <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih Berkas Lampiran...'}</span>
                           </label>
                         </div>
                       ) : isSelect ? (
@@ -333,18 +348,16 @@ export default function PublicForm() {
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {(() => {
                                 let selectOptions = field.options || [];
-                                if (colNameLower.includes('kabupaten')) {
-                                  selectOptions = Object.keys(DATA_WILAYAH);
-                                } else if (colNameLower.includes('kecamatan')) {
+                                if (colNameLower.includes('kabupaten')) selectOptions = Object.keys(DATA_WILAYAH);
+                                else if (colNameLower.includes('kecamatan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
-                                  const kabVal = kabKey ? formData[kabKey] : null;
-                                  if (kabVal && DATA_WILAYAH[kabVal]) selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
+                                  if (kabKey && formData[kabKey] && DATA_WILAYAH[formData[kabKey]]) selectOptions = Object.keys(DATA_WILAYAH[formData[kabKey]]);
                                 } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
                                   const kecKey = Object.keys(formData).find(k => k.toLowerCase().includes('kecamatan'));
-                                  const kabVal = kabKey ? formData[kabKey] : null;
-                                  const kecVal = kecKey ? formData[kecKey] : null;
-                                  if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
+                                  if (kabKey && kecKey && formData[kabKey] && formData[kecKey] && DATA_WILAYAH[formData[kabKey]] && DATA_WILAYAH[formData[kabKey]][formData[kecKey]]) {
+                                    selectOptions = DATA_WILAYAH[formData[kabKey]][formData[kecKey]];
+                                  }
                                 }
                                 return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                               })()}
@@ -370,8 +383,8 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 md:mt-8 text-xs md:text-sm">
-                Submit Tanggapan & Sinkronisasi
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 text-xs md:text-sm">
+                Kirim Formulir
               </button>
             </form>
           )
@@ -381,27 +394,27 @@ export default function PublicForm() {
               <div className="text-center p-8 bg-black/40 rounded-2xl border border-white/5"><p className="text-gray-500 text-xs md:text-sm font-medium">Belum ada data masuk di dashboard ini.</p></div>
             ) : (
               responses.map((res) => (
-                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3">
+                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
                   <div>
-                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="font-bold text-white uppercase text-xs md:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
                     <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
-                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                    <button onClick={() => setSelectedDetail(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center flex-1 md:flex-none">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => setSelectedDetail(res)} className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center">
                       <FontAwesomeIcon icon={faSearch} className="mr-2" /> Lacak Status
                     </button>
 
                     {res.data.delete_request_status === 'pending' ? (
-                      <span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight flex-1 md:flex-none">
+                      <span className="flex-1 md:flex-none text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight">
                         MENUNGGU HAPUS
                       </span>
                     ) : (
                       <>
-                        <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none disabled:opacity-30 disabled:cursor-not-allowed">
-                          <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
+                        <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed">
+                          <FontAwesomeIcon icon={faEdit} className="md:mr-2 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
                         </button>
-                        <button onClick={() => handleRequestDelete(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-1 md:flex-none">
+                        <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
                           <FontAwesomeIcon icon={faTrash} />
                         </button>
                       </>
@@ -413,23 +426,21 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* MODAL RESPONSIF SPLIT VIEW (DENGAN STRICT FLEX HEIGHT AGAR BISA SCROLL ANTI TERPOTONG) */}
+        {/* ========================================================================= */}
+        {/* MODAL LACAK VERIFIKASI DILENGKAPI TOMBOL KEMBALI DI FOOTER */}
+        {/* ========================================================================= */}
         {selectedDetail && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-            
             <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
               
-              {/* HEADER MODAL TERKUNCI */}
               <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
                 <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
                 <h3 className="text-lg md:text-2xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-2 md:mr-3 text-primary" /> Lacak Verifikasi</h3>
                 <p className="text-gray-400 text-[10px] md:text-xs mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
               </div>
 
-              {/* BODY MODAL SCROLLABLE MUTLAK */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
-                  
                   <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
                      <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Pemohon</h4>
                      <div className="space-y-2 md:space-y-3">
@@ -466,8 +477,14 @@ export default function PublicForm() {
                        )}
                      </div>
                   </div>
-
                 </div>
+              </div>
+
+              {/* FOOTER TOMBOL KEMBALI */}
+              <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl flex justify-end">
+                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition-all">
+                  <FontAwesomeIcon icon={faArrowLeft} className="mr-2"/> Tutup & Kembali
+                </button>
               </div>
 
             </div>
