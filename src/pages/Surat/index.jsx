@@ -69,7 +69,6 @@ export default function Surat() {
     reader.readAsDataURL(file);
   };
 
-  // MESIN AI GEMINI YANG SUDAH DIPERBAIKI
   const handleGenerateAI = async () => {
     if (!formData.ai_prompt) return toast.error('Ketik instruksi untuk AI terlebih dahulu!');
     if (!genAI) return toast.error('Sistem Gagal: VITE_GEMINI_API_KEY tidak terdeteksi di Vercel!');
@@ -88,12 +87,10 @@ export default function Surat() {
       toast.success('Draf Disusun AI!', { id: toastId });
     } catch (err) { 
       toast.error(`AI Gagal: ${err.message}`, { id: toastId }); 
-      console.error(err);
     } 
     finally { setIsProcessing(false); }
   };
 
-  // PROSES SIMPAN KE DATABASE (STRICT PAYLOAD)
   const handleSave = async (e) => {
     e.preventDefault();
     const toastId = toast.loading('Memproses Surat & Lampiran...');
@@ -122,7 +119,6 @@ export default function Surat() {
 
       toast.loading('Menyimpan Arsip ke Database...', { id: toastId });
 
-      // STRICT PAYLOAD: Mencegah Error 400
       const payloadToSave = {
         jenis_surat: formData.jenis_surat,
         no_surat: formData.no_surat,
@@ -145,10 +141,7 @@ export default function Surat() {
       setShowModal(false);
       setFormData(prev => ({ ...prev, ai_prompt: '', file_lampiran: null }));
       fetchLetters();
-    } catch (err) { 
-      toast.error('Gagal menyimpan. Pastikan SQL CREATE TABLE sudah dijalankan!', { id: toastId }); 
-      console.error(err);
-    }
+    } catch (err) { toast.error('Gagal menyimpan ke Database!', { id: toastId }); }
   };
 
   const handleDelete = async (id) => {
@@ -158,7 +151,6 @@ export default function Surat() {
     fetchLetters();
   };
 
-  // CETAK PDF RESMI
   const handlePrint = (letter) => {
     const printWindow = window.open('', '_blank');
     const formattedContent = letter.isi_surat.replace(/\n/g, '<br/>');
