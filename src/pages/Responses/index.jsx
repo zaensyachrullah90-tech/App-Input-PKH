@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faFileDownload, faFileExcel, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faPaperclip } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFilter, faFileDownload, faFileOpening, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileOpen } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
@@ -43,6 +43,9 @@ export default function Responses() {
   const [verifyData, setVerifyData] = useState(null); 
   const [verifyEditData, setVerifyEditData] = useState({}); 
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
+
+  // PENGAMAN MEMORI UNTUK VERIFIKATOR FILE RESIZE UPLOAD
+  const [rawVerifyFiles, setRawVerifyFiles] = useState({});
 
   useEffect(() => { 
     fetchForms(); 
@@ -103,16 +106,6 @@ export default function Responses() {
     } catch (err) {}
   };
 
-  const formatRupiah = (angka) => {
-    const numberString = angka.toString().replace(/[^,\d]/g, '');
-    const split = numberString.split(',');
-    const sisa = split[0].length % 3;
-    let rupiah = split[0].substr(0, sisa);
-    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
-    if (ribuan) { rupiah += (sisa ? '.' : '') + ribuan.join('.'); }
-    return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
-  };
-
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
@@ -134,14 +127,12 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
+  // Optimasi Unggah Berkas Ringan Sisi Verifikator
   const handleVerifyFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setVerifyEditData(prev => ({ ...prev, [fieldName]: { isFile: true, fileName: file.name, mimeType: file.type, base64Data: reader.result.split(',')[1] } }));
-    };
-    reader.readAsDataURL(file);
+    setRawVerifyFiles(prev => ({ ...prev, [fieldName]: file }));
+    setVerifyEditData(prev => ({ ...prev, [fieldName]: file.name }));
   };
 
   const handleVerifyInputChange = (e, field) => {
@@ -157,15 +148,11 @@ export default function Responses() {
 
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     }
 
@@ -178,21 +165,26 @@ export default function Responses() {
     let finalData = { ...verifyEditData };
 
     try {
-      for (const key in finalData) {
-        if (finalData[key]?.isFile) {
-          toast.loading(`Mengunggah berkas ${key.toUpperCase()}...`, { id: toastId });
+      // PROSES KONVERSI BASE64 & UPLOAD SEKUANSIAL ANTI TIMEOUT
+      for (const key of Object.keys(rawVerifyFiles)) {
+        const fileObject = rawVerifyFiles[key];
+        if (fileObject) {
+          toast.loading(`Mengunggah dokumen ${fileObject.name} ke Drive...`, { id: toastId });
           try {
+            const base64String = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.readAsDataURL(fileObject);
+              reader.onload = () => resolve(reader.result.split(',')[1]);
+            });
+
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
+              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
             if(!res.ok) throw new Error(driveData.error);
             finalData[key] = driveData.link || 'Gagal Upload';
-          } catch(e) { 
-            console.error("Upload Error:", e);
-            finalData[key] = 'Tersimpan Lokal'; 
-          }
+          } catch(e) { finalData[key] = 'Gagal (Lokal)'; }
         }
       }
 
@@ -201,10 +193,12 @@ export default function Responses() {
       
       toast.success('Hasil Verifikasi Berhasil Disimpan & Disinkronisasi!', { id: toastId });
       setShowVerifyModal(false);
+      setRawVerifyFiles({});
       fetchResponses(selectedFormId);
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
   };
 
+  // REKAYASA EXPORT DATA LAPORAN (BLUEPRINT UNTUK LAMPIRAN LANDSCAPE)
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
@@ -286,10 +280,9 @@ export default function Responses() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
+    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
-      {/* MODAL CONFIG EXPORT (KUNCI BLUEPRINT) */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
@@ -310,52 +303,45 @@ export default function Responses() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) - 100% RESPONSIF */}
-      {/* ======================================================== */}
+      {/* VERIFICATOR WORKSPACE - MODAL FULL RESPONSIVE FIX */}
       {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-          {/* PEMBUNGKUS UTAMA MODAL: MAX HEIGHT 90VH AGAR BISA SCROLL INTERNAL */}
-          <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden py-10">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative my-auto animate-fade-in-up max-h-[95vh] md:max-h-[90vh] flex flex-col">
             
-            {/* HEADER MODAL (TERKUNCI DI ATAS) */}
+            {/* STICKY HEADER (TETAP DI ATAS) */}
             <div className="flex-none p-5 md:p-8 border-b border-white/10 pr-14 relative">
-              <button onClick={() => setShowVerifyModal(false)} className="absolute top-5 md:top-8 right-5 md:right-8 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
+              <button onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="absolute top-5 md:top-8 right-5 md:right-8 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
               <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
               <p className="text-gray-400 text-[10px] md:text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
             </div>
 
-            {/* FORM PEMBUNGKUS SELURUH KONTEN AGAR TOMBOL SUBMIT DI BAWAH BERFUNGSI */}
             <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 overflow-hidden">
               
-              {/* BODY MODAL (AREA SCROLL LELUASA) */}
+              {/* BODY SCROLLABLE INTERNAL */}
               <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  
-                  {/* KOLOM KIRI: INFO ROLE ATAU SUNTIK HEADER */}
                   <div className="lg:col-span-1 space-y-4">
                     <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
                       <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
-                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut dan unggah berkas bukti fisik (jika tersedia).</p>
+                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut dan unggah berkas bukti fisik jika tersedia.</p>
                     </div>
                     
                     <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
                       <h4 className="text-[10px] md:text-xs font-bold text-primary uppercase tracking-widest mb-3 md:mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
                       <div className="space-y-3">
-                        <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
-                        <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
-                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary">
+                        <input type="text" placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none" />
+                        <input type="text" placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none" />
+                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none">
                           <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
                           <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
                           <option value="file">Upload Berkas (Drive)</option>
                         </select>
-                        {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs outline-none h-16" />}
-                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
+                        {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs h-16" />}
+                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header</button>
                       </div>
                     </div>
                   </div>
 
-                  {/* KOLOM KANAN: FORM PENGISIAN */}
                   <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                       {activeSchema.map((field) => {
@@ -365,28 +351,33 @@ export default function Responses() {
                         const isCurrency = field.type === 'currency';
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
+                        
+                        // PENYEMPURNAAN INSPEKSI: Deteksi Jika Kolom Bertautan File URL
+                        const existingValue = verifyEditData[field.name];
+                        const hasFileUploaded = typeof existingValue === 'string' && existingValue.startsWith('http');
 
                         return (
-                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''}`}>
-                            <label className="text-[9px] md:text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
+                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''} ${isFile ? 'md:col-span-2' : ''}`}>
+                            <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
                               <span>{field.label}</span>
-                              {field.adminLocked && !isSystemGenerated && <span className="text-[7px] md:text-[8px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-black">KOLOM VERIFIKASI</span>}
+                              {hasFileUploaded && (
+                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFileOpen} className="mr-1"/> Buka Berkas Pemohon</a>
+                              )}
                             </label>
 
                             {isFile ? (
                               <div className="relative">
                                 <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
-                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3.5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3.5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs bg-black/40 border-white/20 hover:border-primary text-gray-300`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-2 text-primary" />
                                   <span className="truncate max-w-[150px] md:max-w-[200px]">
-                                    {verifyEditData[field.name]?.fileName || 
-                                    (typeof verifyEditData[field.name] === 'string' && verifyEditData[field.name].startsWith('http') ? 'Berkas Tersimpan (Klik Ganti)' : 'Pilih Lampiran Berkas...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Pilih / Ambil Foto Berkas Lapangan...')}
                                   </span>
                                 </label>
                               </div>
                             ) : isSelect ? (
                               <div className="relative">
-                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3.5 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
+                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs appearance-none bg-black/40 text-white border-white/10 focus:border-primary`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
                                     {(() => {
                                        let selectOptions = field.options || [];
@@ -406,7 +397,7 @@ export default function Responses() {
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
-                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
+                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
                             ) : (
                               <div className="relative flex items-center">
@@ -417,7 +408,7 @@ export default function Responses() {
                                   value={isSystemGenerated ? (verifyEditData[field.name] || '-') : (verifyEditData[field.name] || '')}
                                   onChange={(e) => handleVerifyInputChange(e, field)}
                                   disabled={isSystemGenerated}
-                                  className={`w-full p-3.5 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3.5'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
+                                  className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs transition-all bg-black/40 text-white border-white/10 focus:border-primary ${isCurrency ? 'pl-8' : 'pl-3'}`}
                                 />
                               </div>
                             )}
@@ -429,10 +420,10 @@ export default function Responses() {
                 </div>
               </div>
 
-              {/* FOOTER MODAL (TERKUNCI DI BAWAH) */}
+              {/* STICKY FOOTER BUTTON (TERKUNCI DI BAWAH) */}
               <div className="flex-none p-4 md:p-8 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl">
-                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
-                  <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
+                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] text-[10px] md:text-xs">
+                  <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut Verifikasi
                 </button>
               </div>
 
@@ -441,7 +432,7 @@ export default function Responses() {
         </div>
       )}
 
-      {/* HEADER MONITORING PANEL UTAMA */}
+      {/* MONITORING PANEL PANEL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 md:pb-6 gap-3 md:gap-4">
         <div><h2 className="text-xl md:text-2xl lg:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-2 md:mr-3 text-primary" /> Executive Data Table</h2></div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3 w-full md:w-auto">
@@ -455,7 +446,7 @@ export default function Responses() {
         </div>
       </div>
       
-      {/* TABEL DATA HASIL INPUT */}
+      {/* DATA VIEW */}
       <div className="bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="min-w-full text-left text-[10px] md:text-xs lg:text-sm whitespace-nowrap">
