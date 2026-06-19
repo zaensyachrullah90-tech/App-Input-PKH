@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faArrowLeft, faUpload, faLock, faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faArrowLeft, faUpload, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -167,8 +167,10 @@ export default function SmartForm({ userProfile }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {schema.map((field) => {
               const colNameLower = field.name.toLowerCase();
+              const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
+              
               const isFile = field.type === 'file';
-              const isSelect = field.type === 'select';
+              const isSelect = field.type === 'select' || isRegionField; // PAKSA SELECT!
               const isCurrency = field.type === 'currency';
 
               return (
