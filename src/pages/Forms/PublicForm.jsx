@@ -87,7 +87,6 @@ export default function PublicForm() {
 
     let newFormData = { ...formData, [field.name]: value };
 
-    // KECERDASAN AUTO-FILTER WILAYAH (FUZZY LOGIC CASCADE RESET)
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
         if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
@@ -251,8 +250,14 @@ export default function PublicForm() {
                   const isNoField = colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor';
                   const isAdminLocked = field.adminLocked === true && !editingId;
                   const finalLockedStatus = isAdminLocked || isNoField;
+                  
+                  // ==========================================
+                  // KUNCI MUTLAK: PAKSA MENJADI DROPDOWN JIKA ITU WILAYAH
+                  // ==========================================
+                  const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
+                  
                   const isFile = field.type === 'file';
-                  const isSelect = field.type === 'select';
+                  const isSelect = field.type === 'select' || isRegionField; // Paksa Select aktif!
                   const isCurrency = field.type === 'currency';
 
                   return (
@@ -279,9 +284,9 @@ export default function PublicForm() {
                            >
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {(() => {
-                                // MENGGUNAKAN FUZZY LOGIC UNTUK CASCADE DROPDOWN
                                 let selectOptions = field.options || [];
                                 
+                                // AUTO CASCADE BERDASARKAN PEMETAAN KATA
                                 if (colNameLower.includes('kabupaten')) {
                                   selectOptions = Object.keys(DATA_WILAYAH);
                                 } else if (colNameLower.includes('kecamatan')) {
