@@ -4,6 +4,23 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFileExcel, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
+const DATA_WILAYAH = {
+  "TAPIN": {
+    "BINUANG": ["BINUANG", "KARANGAN PUTIH", "A. YANI PURA", "PULAU PINANG", "PULAU PINANG UTARA", "TUNGKAP", "GUNUNG BATU", "PADANG SARI", "MEKAR SARI", "HAUR KUNING"],
+    "BUNGUR": ["BUNGUR", "BUNGUR BARU", "BANUA PADANG", "BANUA PADANG HILIR", "KALUMPANG", "LINUH", "PURUT", "RANTAU BUJUR", "SHABAH", "HANGKUI", "TAMPINAS", "BINGKULU"],
+    "BAKARANGAN": ["BAKARANGAN", "BAKARANGAN TINGGI", "BUNDUNG", "PARIGI", "GADUNG", "GADUNG KERAMAT", "TANGKUTAN", "WARINGIN", "KETAPANG"],
+    "CANDI LARAS SELATAN": ["MARGUSARI", "BERINGIN", "BERINGIN A", "BUNUN RAYA", "CANDI LARAS", "BAUN BANGO", "PABAUNGAN HILIR", "PABAUNGAN HULU", "SUNGAI RUTAS"],
+    "CANDI LARAS UTARA": ["MARGASARI HILIR", "MARGASARI HULU", "KELADAN", "PARIGI", "BUBUHAN JATI", "BATALAS", "RAWA MUNING", "SUNGAI SALAI", "TELUK HAWAN"],
+    "HATUNGUN": ["HATUNGUN", "KAMBINCIS", "TARUNGIN", "MATANG BATAS", "ASAM RANDAH", "BATU HAPU", "BURUAN", "PANDULANGAN"],
+    "LOKPAIKAT": ["LOKPAIKAT", "BITAHAN", "BITAHAN BARU", "BINDANG", "AYUNAN PANGON", "BUDI MULYA"],
+    "PIANI": ["MIAWA", "BARAMBAN", "BATU AMPAR", "HARAKIT", "PIPITAK JAYA", "BALAWAIN", "BUNIIN", "KAMPUNG BARU"],
+    "SALAM BABARIS": ["SALAM BABARIS", "KAMBANG KUNING", "SUKA RAMAI", "PANTAI CABE", "SUWA TANI", "SUWA LAMA"],
+    "TAPIN SELATAN": ["TAMBARANGAN", "RUMINTIN", "LAWASAN", "TANDUI", "SUADENG", "HARAPAN MASA", "SAWAHAN", "TIMBAAN", "TATAKAN", "CEMPAKA", "MARGA SARI"],
+    "TAPIN TENGAH": ["KEPALA BATAS", "MANDURIAN", "MANDURIAN HILIR", "SUKAMAI", "TIRIK", "BATANG LANTIK", "PANDAHAN", "SERAWI", "HULU KELANG", "SUNGAI BAHALANG"],
+    "TAPIN UTARA": ["RANTAU KANAN", "RANTAU KIWA", "RANGDA MALINGKUNG", "KUPANG", "PERINTIS RAYA", "ANTASAN SENOR", "BANUA HALAT KIRI", "BANUA HALAT KANAN", "KAKARAN", "SUNGAI ULIN"]
+  }
+};
+
 export default function Responses() {
   const [responses, setResponses] = useState([]);
   const [forms, setForms] = useState([]);
@@ -11,7 +28,6 @@ export default function Responses() {
   const [loading, setLoading] = useState(true);
   const [activeSchema, setActiveSchema] = useState([]);
   
-  // DETEKSI ROLE VERIFIKATOR
   const [isVerifikator, setIsVerifikator] = useState(false);
 
   const [showExportModal, setShowExportModal] = useState(false);
@@ -126,7 +142,25 @@ export default function Responses() {
     } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
       value = value.toUpperCase();
     }
-    setVerifyEditData({ ...verifyEditData, [field.name]: value });
+
+    let newFormData = { ...verifyEditData, [field.name]: value };
+
+    // KECERDASAN CASCADE RESET DI MENU VERIFIKATOR
+    if (name.includes('kabupaten')) {
+      Object.keys(newFormData).forEach(k => {
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
+      });
+    } else if (name.includes('kecamatan')) {
+      Object.keys(newFormData).forEach(k => {
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
+      });
+    }
+
+    setVerifyEditData(newFormData);
   };
 
   const handleSaveVerify = async (e) => {
@@ -285,9 +319,10 @@ export default function Responses() {
                  <form onSubmit={handleSaveVerify} className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {activeSchema.map((field) => {
+                        const colNameLower = field.name.toLowerCase();
                         const isSelect = field.type === 'select';
                         const isCurrency = field.type === 'currency';
-                        const isSystemGenerated = field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor';
+                        const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
 
                         return (
                           <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''}`}>
@@ -300,7 +335,29 @@ export default function Responses() {
                               <div className="relative">
                                  <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
-                                    {field.options?.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>)}
+                                    {(() => {
+                                       let selectOptions = field.options || [];
+                                       
+                                       if (colNameLower.includes('kabupaten')) {
+                                         selectOptions = Object.keys(DATA_WILAYAH);
+                                       } else if (colNameLower.includes('kecamatan')) {
+                                         const kabKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kabupaten'));
+                                         const kabVal = kabKey ? verifyEditData[kabKey] : null;
+                                         if (kabVal && DATA_WILAYAH[kabVal]) {
+                                           selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
+                                         }
+                                       } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
+                                         const kabKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kabupaten'));
+                                         const kecKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kecamatan'));
+                                         const kabVal = kabKey ? verifyEditData[kabKey] : null;
+                                         const kecVal = kecKey ? verifyEditData[kecKey] : null;
+                                         if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) {
+                                           selectOptions = DATA_WILAYAH[kabVal][kecVal];
+                                         }
+                                       }
+
+                                       return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
+                                    })()}
                                  </select>
                                  <FontAwesomeIcon icon={faChevronDown} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
