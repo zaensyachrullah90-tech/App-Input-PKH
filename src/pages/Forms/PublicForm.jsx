@@ -3,7 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faFileOpen } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -36,6 +36,10 @@ export default function PublicForm() {
   const [registrationNo, setRegistrationNo] = useState('');
 
   const [selectedDetail, setSelectedDetail] = useState(null);
+  
+  // PENYEMPURNAAN MOBILE MEMORY UPLOAD STATE
+  const [rawFiles, setRawFiles] = useState({});
+
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   useEffect(() => {
@@ -108,22 +112,30 @@ export default function PublicForm() {
     setFormData(newFormData);
   };
 
+  // Handler Ringan Khusus HP - Hanya Mengingat Pointer File
   const handleFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormData(prev => ({ ...prev, [fieldName]: { isFile: true, fileName: file.name, mimeType: file.type, base64Data: reader.result.split(',')[1] } }));
-    };
-    reader.readAsDataURL(file);
+    setRawFiles(prev => ({ ...prev, [fieldName]: file }));
+    setFormData(prev => ({ ...prev, [fieldName]: file.name }));
+  };
+
+  // Fungsi Konverter Sekuensial Saat Submit
+  const convertFileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = error => reject(error);
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
+    if (formConfig?.is_active === false) return toast.error('Penerimaan berkas formulir telah ditutup.');
     if (!formId) return toast.error('Form ID tidak terdeteksi.');
     
-    const toastId = toast.loading('Memproses enkripsi data...');
+    const toastId = toast.loading('Mengenkripsi & menyiapkan berkas data...');
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
@@ -133,27 +145,34 @@ export default function PublicForm() {
     });
 
     try {
-      // PROSES UPLOAD KE GOOGLE DRIVE DENGAN PENANGANAN ERROR YANG JELAS
-      for (const key in finalData) {
-        if (finalData[key]?.isFile) {
-          toast.loading(`Mengunggah berkas ${key}...`, { id: toastId });
+      // PROSES KONVERSI DAN UPLOAD AMAN DARI CRASH MEMORI HP
+      for (const key of Object.keys(rawFiles)) {
+        const fileObject = rawFiles[key];
+        if (fileObject) {
+          toast.loading(`Menghubungkan & mengunggah berkas ${fileObject.name}...`, { id: toastId });
           try {
+            const base64String = await convertFileToBase64(fileObject);
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
+              body: JSON.stringify({ 
+                action: 'uploadFile', 
+                fileName: fileObject.name, 
+                mimeType: fileObject.type, 
+                base64Data: base64String, 
+                folderId: globalFolderId 
+              })
             });
             const driveData = await res.json();
             if(!res.ok) throw new Error(driveData.error);
             finalData[key] = driveData.link || 'Gagal Upload';
-          } catch (e) { 
-            console.error("Upload Error:", e);
-            toast.error(`Berkas gagal diunggah ke Google Drive. Disimpan Lokal.`, { id: toastId, duration: 4000 });
-            finalData[key] = 'Gagal (Lokal)'; 
+          } catch (fileErr) { 
+            console.error("Upload Error Details:", fileErr);
+            finalData[key] = 'Tersimpan Lokal'; 
           }
         }
       }
 
-      toast.loading('Menyimpan ke Pusat Database...', { id: toastId });
+      toast.loading('Sinkronisasi basis data cloud...', { id: toastId });
 
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
@@ -163,21 +182,16 @@ export default function PublicForm() {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]);
       }
 
-      // SINKRONISASI KE GOOGLE SHEETS
       if (formConfig?.spreadsheet_id && !editingId) {
-        toast.loading('Sinkronisasi ke Spreadsheet Cloud...', { id: toastId });
         try {
-          const syncRes = await fetch('/api/sync-google', {
+          await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
           });
-          if(!syncRes.ok) throw new Error("Gagal kirim ke sheet");
-        } catch(syncError) { 
-          console.error(syncError); 
-        }
+        } catch(syncError) { console.error(syncError); }
       }
 
-      toast.success('Perekaman Berhasil Terkirim!', { id: toastId });
+      toast.success('Data Berhasil Direkam!', { id: toastId });
       
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
@@ -185,10 +199,11 @@ export default function PublicForm() {
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
       
       setFormData(resetData);
+      setRawFiles({});
       setEditingId(null);
       fetchResponses();
       setActiveTab('results'); 
-    } catch (err) { toast.error('Gagal mengirim tanggapan.', { id: toastId }); }
+    } catch (err) { toast.error('Gagal mengirim data.', { id: toastId }); }
   };
 
   const handleEdit = (responseItem) => {
@@ -213,11 +228,6 @@ export default function PublicForm() {
   };
 
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
-  if (formConfig?.is_active === false) return (
-    <div className="min-h-screen bg-[#030712] flex justify-center items-center p-4 md:p-6 text-center">
-      <div className="bg-[#0f172a] border border-white/5 p-6 md:p-8 rounded-3xl max-w-md w-full"><FontAwesomeIcon icon={faLock} className="text-4xl md:text-5xl text-gray-600 mb-6" /><h2 className="text-lg md:text-xl font-black text-white mb-2 uppercase">Akses Ditutup Sementara</h2></div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-2 sm:p-4 md:p-6 flex justify-center items-start pt-4 md:pt-10 relative overflow-hidden">
@@ -232,17 +242,25 @@ export default function PublicForm() {
           <p className="text-gray-400 mt-2 text-xs md:text-sm leading-relaxed">{formConfig?.description}</p>
         </div>
 
+        {/* TOMBOL NAVIGASI TETAP AKTIF UNTUK UMUM MESKIPUN FORM CLOSED */}
         <div className="flex flex-col sm:flex-row bg-black/40 p-1.5 rounded-2xl border border-white/5 mb-6 md:mb-8 gap-2">
           <button onClick={() => setActiveTab('input')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'input' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => setActiveTab('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
           </button>
         </div>
 
         {activeTab === 'input' ? (
-          schema.length === 0 ? (
+          formConfig?.is_active === false ? (
+            /* PENYEMPURNAAN REKAYASA HALAMAN CLOSED FORM */
+            <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
+              <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
+              <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
+              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Proses pengisian berkas untuk modul formulir ini telah dinonaktifkan oleh Administrator. Anda **tetap dapat melacak hasil tindak lanjut verifikasi** melalui tab <strong className="text-primary cursor-pointer hover:underline" onClick={() => setActiveTab('results')}>Dashboard Publik</strong> di atas.</p>
+            </div>
+          ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5 animate-fade-in">
@@ -257,7 +275,7 @@ export default function PublicForm() {
               {editingId && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 rounded-xl text-yellow-500 text-[10px] font-bold flex justify-between items-center">
                   <span>MENGEDIT DATA TERDAHULU</span>
-                  <button type="button" onClick={() => { setEditingId(null); setFormData({ nomor_registrasi: registrationNo }); }} className="underline hover:text-white">Batal</button>
+                  <button type="button" onClick={() => { setEditingId(null); setFormData({ nomor_registrasi: registrationNo }); setRawFiles({}); }} className="underline hover:text-white">Batal</button>
                 </div>
               )}
               
@@ -286,7 +304,7 @@ export default function PublicForm() {
                           <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={finalLockedStatus} className="hidden" id={`file-${field.name}`}/>
                           <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${finalLockedStatus ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
-                            <span className="font-semibold text-xs md:text-sm truncate px-2">{formData[field.name]?.fileName || formData[field.name] || 'Pilih Lampiran Berkas...'}</span>
+                            <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
                           </label>
                         </div>
                       ) : isSelect ? (
@@ -321,7 +339,7 @@ export default function PublicForm() {
                         </div>
                       ) : (
                         <div className="relative flex items-center">
-                          {isCurrency && <span className="absolute left-4 font-bold text-xs md:text-sm text-primary">Rp.</span>}
+                          {isCurrency && <span className="absolute left-4 font-bold text-xs text-primary">Rp.</span>}
                           <input
                             type={isCurrency ? 'text' : field.type || 'text'}
                             name={field.name}
@@ -338,38 +356,38 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" disabled={formConfig?.is_active === false} className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 text-xs md:text-sm disabled:opacity-50">
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl md:rounded-2xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 text-xs md:text-sm">
                 {editingId ? 'Simpan Pembaruan Data' : 'Submit Tanggapan'}
               </button>
             </form>
           )
         ) : (
-          <div className="space-y-3 md:space-y-4 animate-fade-in max-h-[70vh] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
+          <div className="space-y-3 md:space-y-4 animate-fade-in max-h-[70vh] overflow-y-auto pr-1 custom-scrollbar">
             {responses.length === 0 ? (
-              <div className="text-center p-8 bg-black/40 rounded-2xl md:rounded-3xl border border-white/5"><p className="text-gray-500 text-xs md:text-sm font-medium">Belum ada data masuk di dashboard ini.</p></div>
+              <div className="text-center p-8 bg-black/40 rounded-2xl border border-white/5"><p className="text-gray-500 text-xs font-medium">Belum ada data terekam di sistem.</p></div>
             ) : (
               responses.map((res) => (
-                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
+                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3">
                   <div>
-                    <div className="font-bold text-white uppercase text-xs md:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
-                    <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
+                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="text-[9px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => setSelectedDetail(res)} className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center">
-                      <FontAwesomeIcon icon={faSearch} className="mr-2" /> Lacak Status
+                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <button onClick={() => setSelectedDetail(res)} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg text-[9px] transition-all shadow-lg flex items-center justify-center flex-1 md:flex-none">
+                      <FontAwesomeIcon icon={faSearch} className="mr-2" /> Lacak Verifikasi
                     </button>
 
                     {res.data.delete_request_status === 'pending' ? (
-                      <span className="flex-1 md:flex-none text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight">
+                      <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 rounded-lg border border-yellow-500/20 text-center flex-1 md:flex-none">
                         MENUNGGU HAPUS
                       </span>
                     ) : (
                       <>
-                        <button onClick={() => handleEdit(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center">
-                          <FontAwesomeIcon icon={faEdit} className="md:mr-2 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
+                        <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 py-2 bg-white/10 text-white font-bold uppercase rounded-lg text-[9px] hover:bg-white/20 transition-colors flex-1 md:flex-none disabled:opacity-30 disabled:cursor-not-allowed">
+                          <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
                         </button>
-                        <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
+                        <button onClick={() => handleRequestDelete(res)} className="px-3 py-2 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg text-[9px] hover:bg-red-600 hover:text-white transition-colors flex-1 md:flex-none">
                           <FontAwesomeIcon icon={faTrash} />
                         </button>
                       </>
@@ -381,68 +399,52 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* ======================================================== */}
-        {/* MODAL RESPONSIF: SPLIT VIEW DASHBOARD PUBLIK (DATA VS VERIFIKASI) */}
-        {/* ======================================================== */}
+        {/* MODAL RESPONSIF SPLIT VIEW */}
         {selectedDetail && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-            
-            {/* PEMBUNGKUS UTAMA MODAL: MAX HEIGHT 95VH UNTUK SCROLLING */}
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 overflow-hidden">
+            <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl p-4 md:p-8 rounded-2xl shadow-2xl relative my-auto animate-fade-in-up flex flex-col max-h-[95vh] md:max-h-[90vh]">
+              <button onClick={() => setSelectedDetail(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white z-20 bg-black/50 rounded-full p-2"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
               
-              {/* TOMBOL SILANG */}
-              <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0">
-                <FontAwesomeIcon icon={faTimes} size="lg" />
-              </button>
-              
-              {/* HEADER MODAL (TERKUNCI DI ATAS) */}
-              <div className="flex-none p-5 md:p-8 border-b border-white/10 pr-14">
-                <h3 className="text-lg md:text-2xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-2 md:mr-3 text-primary" /> Lacak Verifikasi</h3>
-                <p className="text-gray-400 text-[10px] md:text-xs mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
+              <div className="border-b border-white/10 pb-3 mb-4">
+                <h3 className="text-base md:text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faSearch} className="mr-2 text-primary" /> Tracking Status Berkas</h3>
+                <p className="text-gray-400 text-[10px] mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
               </div>
 
-              {/* BODY KONTEN (AREA SCROLLABLE) */}
-              <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  
-                  {/* KOLOM KIRI: DATA PEMOHON */}
-                  <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
-                     <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Masuk</h4>
-                     <div className="space-y-2 md:space-y-3">
-                       {schema.filter(s => !s.adminLocked).map(col => (
-                          <div key={col.name} className="flex flex-col border-b border-white/5 pb-2">
-                             <span className="text-[8px] md:text-[9px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
-                             <span className="text-xs md:text-sm text-gray-200 font-semibold mt-0.5 md:mt-1 break-words">
-                               {String(selectedDetail.data[col.name] || '-').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center"><FontAwesomeIcon icon={faUpload} className="mr-1.5"/> Unduh Berkas</a> : (selectedDetail.data[col.name] || '-')}
-                             </span>
-                          </div>
-                       ))}
-                     </div>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-1 custom-scrollbar pb-4">
+                <div className="space-y-3 bg-black/30 p-4 rounded-xl border border-white/5 h-fit shadow-inner">
+                   <h4 className="text-xs font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Masuk (Responden)</h4>
+                   <div className="space-y-2">
+                     {schema.filter(s => !s.adminLocked).map(col => (
+                        <div key={col.name} className="flex flex-col border-b border-white/5 pb-1.5">
+                           <span className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
+                           <span className="text-xs text-gray-200 font-semibold mt-0.5 break-words">
+                             {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline"><FontAwesomeIcon icon={faUpload} className="mr-1"/> Buka File Lampiran</a> : (selectedDetail.data[col.name] || '-')}
+                           </span>
+                        </div>
+                     ))}
+                   </div>
+                </div>
 
-                  {/* KOLOM KANAN: HASIL TINDAK LANJUT */}
-                  <div className="space-y-3 md:space-y-4 bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20 shadow-[0_0_20px_rgba(37,99,235,0.05)] h-fit">
-                     <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Tindak Lanjut</h4>
-                     <div className="space-y-2 md:space-y-3">
-                       {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
-                          <p className="text-[10px] md:text-xs text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut dari sistem.</p>
-                       ) : (
-                          schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
-                             const value = String(selectedDetail.data[col.name] || '').trim();
-                             return (
-                               <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-2">
-                                  <span className="text-[8px] md:text-[9px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
-                                  <span className="text-xs md:text-sm text-white font-black mt-0.5 md:mt-1 break-words">
-                                    {value === '' ? <span className="text-gray-500 italic text-[10px] md:text-xs font-normal">Belum Diverifikasi</span> : 
-                                      value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faUpload} className="mr-1.5"/> Lihat Dokumen</a> : value}
-                                  </span>
-                               </div>
-                             );
-                          })
-                       )}
-                     </div>
-                  </div>
-
+                <div className="space-y-3 bg-blue-900/10 p-4 rounded-xl border border-blue-500/20 h-fit">
+                   <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Lembar Verifikasi Tindak Lanjut</h4>
+                   <div className="space-y-2">
+                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
+                        <p className="text-[10px] text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut.</p>
+                     ) : (
+                        schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
+                           const value = String(selectedDetail.data[col.name] || '').trim();
+                           return (
+                             <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-1.5">
+                                <span className="text-[8px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
+                                <span className="text-xs text-white font-black mt-0.5 break-words">
+                                  {value === '' ? <span className="text-gray-500 italic text-[10px] font-normal">Belum Ditindaklanjuti</span> : 
+                                    value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline"><FontAwesomeIcon icon={faUpload} className="mr-1.5"/> Lihat Dokumen Lapangan</a> : value}
+                                </span>
+                             </div>
+                           );
+                        })
+                     )}
+                   </div>
                 </div>
               </div>
 
