@@ -1,55 +1,45 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
-// TINGKATKAN BATAS PAYLOAD KE MAKSIMAL VERCEL (25MB)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '25mb',
-    },
-  },
-};
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     const { action } = req.body;
     
-    const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
-
-    if (!clientEmail || !privateKeyRaw) {
-       return res.status(500).json({ error: 'Kunci API Vercel Kosong. Hubungi Administrator.' });
+    // 1. TANGKAP SELURUH FILE JSON DARI VERCEL
+    const credentialsRaw = process.env.GOOGLE_CREDENTIALS;
+    if (!credentialsRaw) {
+       console.error("Vercel Error: Variabel GOOGLE_CREDENTIALS kosong.");
+       return res.status(500).json({ error: 'Kunci API Vercel Kosong.' });
     }
 
-    // ALGORITMA ANTI-PATAH: Memperbaiki format kunci Vercel yang rusak akibat kutip ganda
-    let formattedKey = privateKeyRaw.replace(/\\n/g, '\n');
-    if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
-      formattedKey = formattedKey.slice(1, -1);
-    }
+    // 2. PARSE JSON (Sistem otomatis memperbaiki format yang rusak)
+    const credentials = JSON.parse(credentialsRaw);
 
-    // Otorisasi Robot
+    // 3. OTENTIKASI MUTLAK TAHAN BANTING
     const auth = new google.auth.JWT(
-      clientEmail,
+      credentials.client_email,
       null,
-      formattedKey,
+      credentials.private_key,
       ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
     );
 
     const drive = google.drive({ version: 'v3', auth });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // TARGET FOLDER HARDCODE MUTLAK
+    // PENGUNCI ID FOLDER MUTLAK JIKA DARI BROWSER KOSONG
     const targetFolderId = req.body.folderId || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
-    // 1. MESIN UPLOAD BERKAS
+    // ==========================================
+    // MESIN UPLOAD BERKAS KE DRIVE
+    // ==========================================
     if (action === 'uploadFile') {
       const { fileName, mimeType, base64Data } = req.body;
+      
+      // Metode Stream Buffer Paling Stabil di Serverless Node.js
       const buffer = Buffer.from(base64Data, 'base64');
-      const stream = new Readable();
-      stream.push(buffer);
-      stream.push(null);
+      const stream = Readable.from(buffer);
 
       try {
         const file = await drive.files.create({
@@ -58,6 +48,7 @@ export default async function handler(req, res) {
           fields: 'id, webViewLink'
         });
 
+        // Buka izin baca agar Verifikator bisa mengklik linknya
         await drive.permissions.create({
           fileId: file.data.id,
           requestBody: { role: 'reader', type: 'anyone' }
@@ -65,12 +56,14 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ link: file.data.webViewLink });
       } catch (driveErr) {
-        console.error("Drive Error:", driveErr.message);
-        return res.status(500).json({ error: `Gagal Akses Drive: Pastikan email robot sudah jadi Editor di folder.` });
+        console.error("Google Drive Upload Error:", driveErr.message);
+        return res.status(500).json({ error: driveErr.message });
       }
     }
 
-    // 2. MESIN PEMBUAT FORM SPREADSHEET
+    // ==========================================
+    // MESIN PEMBUAT FORM SPREADSHEET
+    // ==========================================
     if (action === 'createForm') {
       try {
         const { title } = req.body;
@@ -86,11 +79,13 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ spreadsheetId: file.data.id, spreadsheetUrl: file.data.webViewLink });
       } catch (err) {
-        return res.status(500).json({ error: 'Gagal membuat Google Sheet.' });
+        return res.status(500).json({ error: 'Gagal membuat Sheet.' });
       }
     }
 
-    // 3. MESIN PENULIS BARIS SPREADSHEET
+    // ==========================================
+    // MESIN PENULIS DATA KE SPREADSHEET
+    // ==========================================
     if (action === 'appendRow') {
       try {
         const { spreadsheetId, schema, rowData } = req.body;
@@ -105,8 +100,8 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ success: true });
       } catch (sheetErr) {
-        console.error("Sheet Error:", sheetErr.message);
-        return res.status(500).json({ error: 'Gagal menulis ke Spreadsheet. Pastikan Google Sheets API aktif.' });
+        console.error("Google Sheets Error:", sheetErr.message);
+        return res.status(500).json({ error: 'Gagal menulis ke Spreadsheet.' });
       }
     }
 
@@ -114,6 +109,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Core Backend Error:', error.message);
-    return res.status(500).json({ error: 'Kunci Akses Google JSON Salah atau Kedaluwarsa.' });
+    return res.status(500).json({ error: 'Konfigurasi JSON Kunci Akses Salah.' });
   }
 }
