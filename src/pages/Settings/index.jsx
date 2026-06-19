@@ -4,7 +4,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import Papa from 'papaparse';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faLink, faFileExcel, faPenNib, faTrash, faEye, faEdit, faSave, faTimes, faFolder, faLock, faLockOpen } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faRobot, faUpload, faSpinner, faPlus, faCog, faCloud, faFileExcel, faPenNib, faTrash, faEye, faEdit, faSave, faTimes, faFolder, faLock, faLockOpen, faLink } from '@fortawesome/free-solid-svg-icons';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -231,9 +231,6 @@ export default function Settings() {
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
   };
 
-  // ========================================================
-  // ERROR 2 DIPERBAIKI DI SINI: REGEX SYNTAX ERROR FIX
-  // ========================================================
   const handleGeminiUpload = (e) => {
     const file = e.target.files[0];
     if (!file || !selectedFormId) return;
@@ -247,7 +244,6 @@ export default function Settings() {
           const prompt = `Rapikan JSON berikut: ${JSON.stringify(results.data)}. Kapitalisasi nama. NIK angka murni. Kembalikan HANYA array JSON murni tanpa markdown.`;
           const result = await model.generateContent(prompt);
           
-          // Perbaikan RegEx agar tidak memecah proses Build Vercel
           const responseText = result.response.text();
           const cleanText = responseText.replace(new RegExp('```json', 'gi'), '').replace(new RegExp('```', 'g'), '').trim();
           const cleanedData = JSON.parse(cleanText);
@@ -424,7 +420,7 @@ export default function Settings() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-dark/50 text-gray-400 text-xs uppercase border-b border-gray-800">
-              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Link Publik</th><th className="p-5 text-right">Aksi</th></tr>
+              <tr><th className="p-5">Judul</th><th className="p-5 text-center">Status</th><th className="p-5 text-center">Tautan Eksternal</th><th className="p-5 text-right">Aksi</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {forms.map(f => {
@@ -434,7 +430,15 @@ export default function Settings() {
                   <tr key={f.id} className="hover:bg-gray-800/40">
                     <td className="p-5 font-bold text-gray-200">{f.title}</td>
                     <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20 hover:bg-green-900/40' : 'text-red-400 border-red-500/20 hover:bg-red-900/40'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
-                    <td className="p-5 text-center"><button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary hover:bg-yellow-500 text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button></td>
+                    
+                    {/* TOMBOL DISTRIBUSI BARU (FORM VS DASHBOARD) */}
+                    <td className="p-3 text-center">
+                      <div className="flex flex-col space-y-2 max-w-[150px] mx-auto">
+                        <button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link Form Publik disalin!'); }} className="px-3 py-1.5 bg-primary hover:bg-yellow-500 text-darker font-bold rounded-lg text-[9px] uppercase tracking-widest w-full">Copy Form Input</button>
+                        <button type="button" onClick={() => { navigator.clipboard.writeText(publicLink + '?tab=results'); toast.success('Link Dashboard Publik disalin!'); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[9px] uppercase tracking-widest w-full border border-blue-500/50">Copy Dashboard</button>
+                      </div>
+                    </td>
+
                     <td className="p-5 flex justify-end space-x-2">
                       {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" title="Buka Spreadsheet Google Drive" className="p-2.5 bg-gray-800 text-primary hover:bg-gray-700 rounded-lg"><FontAwesomeIcon icon={faEye} /></a>}
                       <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FontAwesomeIcon icon={faTrash} /></button>
