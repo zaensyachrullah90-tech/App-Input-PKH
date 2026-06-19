@@ -1,11 +1,10 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
-// TINGKATKAN BATAS PAYLOAD VERCEL AGAR KUAT MENERIMA FILE FOTO DARI HP
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb',
+      sizeLimit: '10mb', // Menjaga agar upload foto ukuran besar dari HP tidak terputus di Vercel
     },
   },
 };
@@ -24,16 +23,19 @@ export default async function handler(req, res) {
     );
 
     const drive = google.drive({ version: 'v3', auth });
-    const sheets = google.sheets({ version: 'v4', auth });
+    const googleSheetsClient = google.sheets({ version: 'v4', auth });
+
+    // JANGKAR PENGAMAN: Jika folderId dari browser pemohon kosong, paksa arahkan ke Drive Anda
+    const targetFolderId = req.body.folderId || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
     if (action === 'uploadFile') {
-      const { fileName, mimeType, base64Data, folderId } = req.body;
+      const { fileName, mimeType, base64Data } = req.body;
       const buffer = Buffer.from(base64Data, 'base64');
       const stream = new Readable();
       stream.push(buffer);
       stream.push(null);
 
-      const fileMetadata = { name: fileName, parents: [folderId] };
+      const fileMetadata = { name: fileName, parents: [targetFolderId] };
       const media = { mimeType, body: stream };
 
       const file = await drive.files.create({
@@ -48,8 +50,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'createForm') {
-      const { title, folderId } = req.body;
-      const fileMetadata = { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folderId] };
+      const { title } = req.body;
+      const fileMetadata = { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [targetFolderId] };
       const file = await drive.files.create({ resource: fileMetadata, fields: 'id, webViewLink' });
       
       await drive.permissions.create({
@@ -63,7 +65,7 @@ export default async function handler(req, res) {
       const { spreadsheetId, schema, rowData } = req.body;
       const rowValues = schema.map(col => rowData[col.name] || '');
 
-      await sheets.spreadsheets.values.append({
+      await googleSheetsClient.spreadsheets.values.append({
         spreadsheetId, range: 'Sheet1!A1', valueInputOption: 'USER_ENTERED',
         requestBody: { values: [rowValues] }
       });
