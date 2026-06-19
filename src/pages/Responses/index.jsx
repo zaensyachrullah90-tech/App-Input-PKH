@@ -255,13 +255,15 @@ export default function Responses() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
-      <Toaster position="top-right" toastOptions="{{" style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }}/>
+      
+      {/* ERROR 1 DIPERBAIKI DI SINI: TOASTER SYNTAX ERROR FIX */}
+      <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
-            <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon="{faTimes}" size="lg"/></button>
-            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon="{faPrint}" className="mr-3 text-primary"/> Konfigurasi Lampiran</h3>
+            <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Konfigurasi Lampiran</h3>
             <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Data di bawah ini akan diingat otomatis oleh sistem memori browser (Cache).</p>
             <div className="space-y-4">
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Nomor Lampiran</label><input type="text" value={exportMeta.noSurat} onChange={e => handleMetaChange('noSurat', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none uppercase font-semibold" /></div>
@@ -270,30 +272,29 @@ export default function Responses() {
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">NIK/NIP TTD</label><input type="number" value={exportMeta.nik} onChange={e => handleMetaChange('nik', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
             </div>
             <div className="grid grid-cols-2 gap-4 mt-8">
-              <button onClick={handleExportExcel} className="p-4 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon="{faFileExcel}" size="lg"/> Excel</button>
-              <button onClick={handleExportPDF} className="p-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon="{faFilePdf}" size="lg"/> PDF</button>
+              <button onClick={handleExportExcel} className="p-4 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon={faFileExcel} size="lg" /> Excel</button>
+              <button onClick={handleExportPDF} className="p-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon={faFilePdf} size="lg" /> PDF</button>
             </div>
           </div>
         </div>
       )}
 
-      
+      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto py-10">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl p-6 md:p-8 rounded-3xl shadow-2xl relative my-auto animate-fade-in-up">
-            <button onClick={() => setShowVerifyModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon="{faTimes}" size="lg"/></button>
+            <button onClick={() => setShowVerifyModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             
             <div className="border-b border-white/10 pb-4 mb-6">
-              <h3 className="text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon="{faUserShield}" className="mr-3 text-primary"/> Ruang Tindak Lanjut Data</h3>
+              <h3 className="text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
               <p className="text-gray-400 text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               
-              
               {!isVerifikator ? (
                 <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
-                  <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon="{faPlus}" className="mr-2"/> Suntik Header Khusus</h4>
+                  <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
                   <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom verifikasi yang <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span>.</p>
                   <form onSubmit={handleAddVerifyColumn} className="space-y-3">
                     <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
@@ -308,19 +309,18 @@ export default function Responses() {
                 </div>
               ) : (
                 <div className="lg:col-span-1 bg-blue-900/10 p-5 rounded-2xl border border-blue-500/20 h-fit">
-                  <h4 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon="{faUserShield}" className="mr-2"/> Mode Verifikator</h4>
+                  <h4 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> Mode Verifikator</h4>
                   <p className="text-[11px] text-gray-400 leading-relaxed">Anda sedang berada di ruang verifikasi. Silakan isi kolom yang tersedia untuk menindaklanjuti data permohonan ini.</p>
                 </div>
               )}
 
-              
               <div className="lg:col-span-2">
                  <form onSubmit={handleSaveVerify} className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {activeSchema.map((field) => {
                         const colNameLower = field.name.toLowerCase();
                         const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
-                        const isSelect = field.type === 'select' || isRegionField; // PAKSA SELECT!
+                        const isSelect = field.type === 'select' || isRegionField;
                         const isCurrency = field.type === 'currency';
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
 
@@ -359,7 +359,7 @@ export default function Responses() {
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
-                                 <FontAwesomeIcon icon="{faChevronDown}" className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none"/>
+                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
                             ) : (
                               <div className="relative flex items-center">
@@ -380,7 +380,7 @@ export default function Responses() {
                     </div>
                     <div className="sticky bottom-0 bg-[#0f172a] pt-4 mt-6 border-t border-white/10">
                       <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-xs">
-                        <FontAwesomeIcon icon="{faSave}" className="mr-2"/> Simpan Hasil Tindak Lanjut
+                        <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
                       </button>
                     </div>
                  </form>
@@ -390,21 +390,21 @@ export default function Responses() {
         </div>
       )}
 
-      
+      {/* HEADER MONITORING PANEL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
-        <div><h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon="{faDatabase}" className="mr-3 text-primary"/> Executive Data Table</h2></div>
+        <div><h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-3 text-primary" /> Executive Data Table</h2></div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <div className="flex items-center space-x-3 bg-darker border border-gray-700 p-1.5 rounded-xl w-full sm:w-auto justify-between sm:justify-start">
-            <FontAwesomeIcon icon="{faFilter}" className="text-gray-500 ml-3"/>
+            <FontAwesomeIcon icon={faFilter} className="text-gray-500 ml-3" />
             <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="p-1.5 bg-transparent text-white focus:outline-none text-xs md:text-sm font-bold w-full sm:w-48">
               {forms.map(f => <option key={f.id} value={f.id} className="bg-[#0f172a]">{f.title.toUpperCase()}</option>)}
             </select>
           </div>
-          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all"><FontAwesomeIcon icon="{faPrint}" className="mr-2"/> Cetak Lampiran</button>
+          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all"><FontAwesomeIcon icon={faPrint} className="mr-2" /> Cetak Lampiran</button>
         </div>
       </div>
       
-      
+      {/* TABEL DATA HASIL INPUT */}
       <div className="bg-darker rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs md:text-sm whitespace-nowrap">
@@ -426,22 +426,20 @@ export default function Responses() {
                       if (colNameLower === 'no' || colNameLower === 'nomor') displayValue = responses.length - index; 
                       return (
                         <td key={col.name} className="px-6 py-4 text-gray-300 truncate max-w-[200px]">
-                          {String(displayValue).startsWith('http') ? <a href={displayValue} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon="{faFileDownload}" className="mr-1.5"/> UNDUH</a> : displayValue}
+                          {String(displayValue).startsWith('http') ? <a href={displayValue} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faFileDownload} className="mr-1.5" /> UNDUH</a> : displayValue}
                         </td>
                       );
                     })}
                     
-                    
                     <td className="px-6 py-4 flex justify-end space-x-2 items-center">
                       <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors mr-1">
-                        <FontAwesomeIcon icon="{faUserShield}" className="mr-1"/> Tindak Lanjut
+                        <FontAwesomeIcon icon={faUserShield} className="mr-1" /> Tindak Lanjut
                       </button>
 
-                      
                       {!isVerifikator && (
                         res.data.delete_request_status === 'pending' ? (
-                          <><span className="text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon="{faCheck}"/></button><button onClick={() => handleRejectDelete(res)} className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon="{faTimes}"/></button></>
-                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon="{faTrash}"/></button>
+                          <><span className="text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
+                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
                       )}
                     </td>
                   </tr>
