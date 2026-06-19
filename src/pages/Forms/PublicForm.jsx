@@ -3,7 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -38,7 +38,7 @@ export default function PublicForm() {
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   
-  // STATE BARU: INDIKATOR PUSAT SAVE TENGAN LAYAR
+  // STATE BARU: INDIKATOR PUSAT SAVE TENGAN LAYAR MUTLAK
   const [isSaving, setIsSaving] = useState(false);
 
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
@@ -145,26 +145,32 @@ export default function PublicForm() {
     });
 
     try {
-      // PROSES PARALEL SINKRONISASI BERKAS KE DRIVE (SANGAT CEPAT)
+      // PROSES PARALEL SINKRONISASI BERKAS KE DRIVE DENGAN PENANGKAP ERROR
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
-          const base64String = await convertFileToBase64(fileObject);
-          const res = await fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              action: 'uploadFile', 
-              fileName: fileObject.name, 
-              mimeType: fileObject.type, 
-              base64Data: base64String, 
-              folderId: globalFolderId 
-            })
-          });
-          const driveData = await res.json();
-          if(res.ok && driveData.link) {
-            finalData[key] = driveData.link;
-          } else {
-            finalData[key] = 'Tersimpan Lokal';
+          try {
+            const base64String = await convertFileToBase64(fileObject);
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                action: 'uploadFile', 
+                fileName: fileObject.name, 
+                mimeType: fileObject.type, 
+                base64Data: base64String, 
+                folderId: globalFolderId 
+              })
+            });
+            
+            const driveData = await res.json();
+            if(res.ok && driveData.link) {
+              finalData[key] = driveData.link;
+            } else {
+              throw new Error(driveData.error || 'Server Vercel Timeout');
+            }
+          } catch(err) {
+            console.error("Upload Failed:", err);
+            finalData[key] = `GAGAL UPLOAD (Sistem Menolak)`; 
           }
         }
       });
@@ -179,7 +185,7 @@ export default function PublicForm() {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]);
       }
 
-      // ASINKRONUS BYPASS: Kirim data ke Spreadsheet tanpa harus ditunggu selesai
+      // ASINKRONUS BYPASS: Kirim data ke Spreadsheet
       if (formConfig?.spreadsheet_id && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -200,9 +206,9 @@ export default function PublicForm() {
       fetchResponses();
       setActiveTab('results'); 
     } catch (err) { 
-      toast.error('Gagal mengirim data.'); 
+      toast.error('Gagal mengirim data sistem.'); 
     } finally {
-      setIsSaving(false); // Matikan loading tengah layar
+      setIsSaving(false); 
     }
   };
 
@@ -233,14 +239,13 @@ export default function PublicForm() {
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-2 sm:p-4 md:p-6 flex justify-center items-start pt-4 md:pt-10 relative overflow-hidden">
       <Toaster position="top-center" toastOptions={{ style: { background: '#111827', color: '#fff', borderRadius: '16px', border: '1px solid #374151' } }} />
       
-      {/* ========================================== */}
-      {/* PANEL LOADING TRANSISI INSTAN TENGAH LAYAR */}
-      {/* ========================================== */}
+      {/* OVERLAY LOADING PUSAT MUTLAK */}
       {isSaving && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex flex-col justify-center items-center">
-          <div className="bg-[#0f172a] border border-white/10 p-6 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
-            <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-3" />
-            <p className="text-white text-xs font-black uppercase tracking-widest">Mengamankan Arsip Berkas...</p>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
+          <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
+            <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan & Menghubungkan ke Drive...</p>
+            <p className="text-gray-500 text-[10px] mt-2">Mohon tunggu, proses memakan waktu 1-3 detik.</p>
           </div>
         </div>
       )}
@@ -260,7 +265,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => setActiveTab('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
           </button>
         </div>
 
@@ -269,7 +274,7 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
-              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Proses pengisian berkas untuk modul formulir ini telah dinonaktifkan oleh Administrator. Anda **tetap dapat melacak hasil tindak lanjut verifikasi** melalui tab <strong className="text-primary cursor-pointer hover:underline" onClick={() => setActiveTab('results')}>Dashboard Publik & Status Lacak</strong> di atas.</p>
+              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Proses pengisian berkas untuk modul ini telah dinonaktifkan oleh Administrator. Anda **tetap dapat melacak hasil tindak lanjut verifikasi** melalui tab <strong className="text-primary cursor-pointer hover:underline" onClick={() => setActiveTab('results')}>Dashboard Publik</strong> di atas.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
@@ -328,7 +333,6 @@ export default function PublicForm() {
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {(() => {
                                 let selectOptions = field.options || [];
-                                
                                 if (colNameLower.includes('kabupaten')) {
                                   selectOptions = Object.keys(DATA_WILAYAH);
                                 } else if (colNameLower.includes('kecamatan')) {
@@ -342,7 +346,6 @@ export default function PublicForm() {
                                   const kecVal = kecKey ? formData[kecKey] : null;
                                   if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
                                 }
-
                                 return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                               })()}
                            </select>
@@ -350,7 +353,7 @@ export default function PublicForm() {
                         </div>
                       ) : (
                         <div className="relative flex items-center">
-                          {isCurrency && <span className="absolute left-4 font-bold text-xs md:text-sm text-primary">Rp.</span>}
+                          {isCurrency && <span className="absolute left-4 font-bold text-xs text-primary">Rp.</span>}
                           <input
                             type={isCurrency ? 'text' : field.type || 'text'}
                             name={field.name}
@@ -367,8 +370,8 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl md:rounded-2xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 md:mt-8 text-xs md:text-sm">
-                Submit Tanggapan
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-[0_10px_30px_rgba(234,179,8,0.2)] transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 md:mt-8 text-xs md:text-sm">
+                Submit Tanggapan & Sinkronisasi
               </button>
             </form>
           )
@@ -378,27 +381,27 @@ export default function PublicForm() {
               <div className="text-center p-8 bg-black/40 rounded-2xl border border-white/5"><p className="text-gray-500 text-xs md:text-sm font-medium">Belum ada data masuk di dashboard ini.</p></div>
             ) : (
               responses.map((res) => (
-                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
+                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3">
                   <div>
-                    <div className="font-bold text-white uppercase text-xs md:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
                     <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => setSelectedDetail(res)} className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center">
+                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <button onClick={() => setSelectedDetail(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center flex-1 md:flex-none">
                       <FontAwesomeIcon icon={faSearch} className="mr-2" /> Lacak Status
                     </button>
 
                     {res.data.delete_request_status === 'pending' ? (
-                      <span className="flex-1 md:flex-none text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight">
+                      <span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight flex-1 md:flex-none">
                         MENUNGGU HAPUS
                       </span>
                     ) : (
                       <>
-                        <button onClick={() => handleEdit(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center">
-                          <FontAwesomeIcon icon={faEdit} className="md:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
+                        <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none disabled:opacity-30 disabled:cursor-not-allowed">
+                          <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
                         </button>
-                        <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
+                        <button onClick={() => handleRequestDelete(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-1 md:flex-none">
                           <FontAwesomeIcon icon={faTrash} />
                         </button>
                       </>
@@ -410,52 +413,60 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* MODAL RESPONSIF SPLIT VIEW */}
+        {/* MODAL RESPONSIF SPLIT VIEW (DENGAN STRICT FLEX HEIGHT AGAR BISA SCROLL ANTI TERPOTONG) */}
         {selectedDetail && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden">
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl p-4 md:p-8 rounded-2xl shadow-2xl relative my-auto animate-fade-in-up flex flex-col max-h-[95vh] md:max-h-[90vh]">
-              <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
+            
+            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
               
-              <div className="border-b border-white/10 pb-3 mb-4">
-                <h3 className="text-base md:text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faSearch} className="mr-2 text-primary" /> Lacak Verifikasi</h3>
-                <p className="text-gray-400 text-[10px] mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
+              {/* HEADER MODAL TERKUNCI */}
+              <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
+                <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+                <h3 className="text-lg md:text-2xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-2 md:mr-3 text-primary" /> Lacak Verifikasi</h3>
+                <p className="text-gray-400 text-[10px] md:text-xs mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-1 custom-scrollbar pb-4">
-                <div className="space-y-3 bg-black/30 p-4 rounded-xl border border-white/5 h-fit shadow-inner">
-                   <h4 className="text-xs font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Masuk</h4>
-                   <div className="space-y-2">
-                     {schema.filter(s => !s.adminLocked).map(col => (
-                        <div key={col.name} className="flex flex-col border-b border-white/5 pb-1.5">
-                           <span className="text-[8px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
-                           <span className="text-xs text-gray-200 font-semibold mt-0.5 break-words">
-                             {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka File Lampiran</a> : (selectedDetail.data[col.name] || '-')}
-                           </span>
-                        </div>
-                     ))}
-                   </div>
-                </div>
+              {/* BODY MODAL SCROLLABLE MUTLAK */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
+                  
+                  <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
+                     <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Pemohon</h4>
+                     <div className="space-y-2 md:space-y-3">
+                       {schema.filter(s => !s.adminLocked).map(col => (
+                          <div key={col.name} className="flex flex-col border-b border-white/5 pb-2">
+                             <span className="text-[8px] md:text-[9px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
+                             <span className="text-xs md:text-sm text-gray-200 font-semibold mt-0.5 md:mt-1 break-words">
+                               {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Buka Berkas Upload</a> : 
+                                String(selectedDetail.data[col.name] || '').includes('GAGAL') ? <span className="text-red-400 text-[10px] bg-red-400/10 px-2 py-1 rounded">GAGAL UPLOAD (TIMEOUT)</span> : (selectedDetail.data[col.name] || '-')}
+                             </span>
+                          </div>
+                       ))}
+                     </div>
+                  </div>
 
-                <div className="space-y-3 bg-blue-900/10 p-4 rounded-xl border border-blue-500/20 h-fit">
-                   <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Tindak Lanjut</h4>
-                   <div className="space-y-2">
-                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
-                        <p className="text-[10px] text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut.</p>
-                     ) : (
-                        schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
-                           const value = String(selectedDetail.data[col.name] || '').trim();
-                           return (
-                             <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-1.5">
-                                <span className="text-[8px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
-                                <span className="text-xs text-white font-black mt-0.5 break-words">
-                                  {value === '' ? <span className="text-gray-500 italic text-[10px] font-normal">Belum Ditindaklanjuti</span> : 
-                                    value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1.5"/> Lihat Dokumen</a> : value}
-                                </span>
-                             </div>
-                           );
-                        })
-                     )}
-                   </div>
+                  <div className="space-y-3 md:space-y-4 bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20 shadow-[0_0_20px_rgba(37,99,235,0.05)] h-fit">
+                     <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Status Tindak Lanjut</h4>
+                     <div className="space-y-2 md:space-y-3">
+                       {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
+                          <p className="text-[10px] md:text-xs text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut dari sistem.</p>
+                       ) : (
+                          schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
+                             const value = String(selectedDetail.data[col.name] || '').trim();
+                             return (
+                               <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-2">
+                                  <span className="text-[8px] md:text-[9px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
+                                  <span className="text-xs md:text-sm text-white font-black mt-0.5 md:mt-1 break-words">
+                                    {value === '' ? <span className="text-gray-500 italic text-[10px] md:text-xs font-normal">Belum Diverifikasi</span> : 
+                                      value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Lihat Dokumen</a> : value}
+                                  </span>
+                               </div>
+                             );
+                          })
+                       )}
+                     </div>
+                  </div>
+
                 </div>
               </div>
 
