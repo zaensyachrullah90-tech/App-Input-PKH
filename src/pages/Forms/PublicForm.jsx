@@ -38,7 +38,7 @@ export default function PublicForm() {
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
-  const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
+  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -117,6 +117,12 @@ export default function PublicForm() {
   const handleFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // PEMBATASAN UKURAN PDF/DOKUMEN UNTUK MENCEGAH VERCEL TIMEOUT
+    if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
+       return toast.error('Maaf, ukuran maksimal dokumen PDF/Berkas non-foto adalah 3.5 MB untuk kestabilan server.');
+    }
+
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
   };
@@ -137,7 +143,8 @@ export default function PublicForm() {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200; const MAX_HEIGHT = 1200;
+          // KOMPRESI ULTRA AGRESIF AGAR LOLOS SERVER VERCEL HOBBY
+          const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
           let width = img.width; let height = img.height;
           if (width > height) {
             if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -147,7 +154,7 @@ export default function PublicForm() {
           canvas.width = width; canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+          resolve(canvas.toDataURL('image/jpeg', 0.5).split(',')[1]); // Kualitas 50%
         };
       };
       reader.onerror = error => reject(error);
@@ -156,7 +163,7 @@ export default function PublicForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
+    if (formConfig?.is_active === false) return toast.error('Penerimaan berkas formulir telah ditutup.');
     if (!formId) return toast.error('Form ID tidak terdeteksi.');
     
     setIsSaving(true);
@@ -180,8 +187,8 @@ export default function PublicForm() {
             });
             const driveData = await res.json();
             if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error('Timeout'); }
-          } catch(err) { finalData[key] = `GAGAL UPLOAD (TIMEOUT)`; }
+            else { throw new Error('Vercel Timeout'); }
+          } catch(err) { finalData[key] = `GAGAL UPLOAD (TIMEOUT SERVER)`; }
         }
       });
       await Promise.all(uploadPromises);
@@ -238,7 +245,7 @@ export default function PublicForm() {
     } catch (err) { toast.error('Gagal.', { id: toastId }); }
   };
 
-  if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem...</p></div>;
+  if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
 
   return (
     <div className="min-h-screen bg-[#030712] text-gray-200 font-sans p-2 sm:p-4 md:p-6 flex justify-center items-start pt-4 md:pt-10 relative overflow-hidden">
@@ -249,7 +256,7 @@ export default function PublicForm() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan & Menghubungkan ke Drive...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Upload kilat sedang berlangsung...</p>
+            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif...</p>
           </div>
         </div>
       )}
@@ -376,8 +383,8 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 text-xs md:text-sm">
-                Kirim Formulir
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 md:mt-8 text-xs md:text-sm">
+                Kirim Data Laporan
               </button>
             </form>
           )
@@ -389,7 +396,7 @@ export default function PublicForm() {
               responses.map((res) => (
                 <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
                   <div>
-                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="font-bold text-white uppercase text-xs md:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
                     <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
@@ -405,7 +412,7 @@ export default function PublicForm() {
                     ) : (
                       <>
                         <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed">
-                          <FontAwesomeIcon icon={faEdit} className="mr-2 md:mr-0 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
+                          <FontAwesomeIcon icon={faEdit} className="md:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
                         </button>
                         <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
                           <FontAwesomeIcon icon={faTrash} />
@@ -419,27 +426,33 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* MODAL RESPONSIF DENGAN TOMBOL KEMBALI */}
+        {/* ========================================================================= */}
+        {/* MODAL LACAK VERIFIKASI FULL SCREEN (DESKTOP) DAN FULL RESPONSIVE */}
+        {/* ========================================================================= */}
         {selectedDetail && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden">
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-auto max-h-[90vh] animate-fade-in-up">
+          <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
+            <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up">
               
-              <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
-                <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
-                <h3 className="text-lg md:text-2xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-2 md:mr-3 text-primary" /> Lacak Verifikasi</h3>
-                <p className="text-gray-400 text-[10px] md:text-xs mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
+              {/* HEADER MODAL PULL SCREEN */}
+              <div className="flex-none p-4 md:p-8 border-b border-white/10 relative bg-darker pr-14 shadow-md z-10">
+                <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-8 right-4 md:right-8 text-gray-400 hover:text-white bg-white/5 hover:bg-red-500/20 hover:text-red-400 rounded-full w-10 h-10 flex items-center justify-center transition-all"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+                <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-widest flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-3 md:mr-4 text-primary" /> Tracking Status</h3>
+                <p className="text-gray-400 text-xs md:text-sm mt-2">Registrasi Pemohon: <span className="text-primary font-mono font-bold tracking-widest">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
-                  <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
-                     <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Pemohon</h4>
-                     <div className="space-y-2 md:space-y-3">
+              {/* KONTEN TENGAH BISA DI SCROLL BEBAS */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-10 custom-scrollbar relative">
+                <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
+                  
+                  {/* DATA MASUK */}
+                  <div className="space-y-4 bg-black/40 p-6 md:p-8 rounded-2xl md:rounded-3xl border border-white/5 shadow-inner">
+                     <h4 className="text-sm md:text-base font-black text-white uppercase tracking-widest border-b border-white/10 pb-3 md:pb-4 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-3 text-primary text-xl"/> Data Pemohon</h4>
+                     <div className="space-y-4">
                        {schema.filter(s => !s.adminLocked).map(col => (
-                          <div key={col.name} className="flex flex-col border-b border-white/5 pb-2">
-                             <span className="text-[8px] md:text-[9px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
-                             <span className="text-xs md:text-sm text-gray-200 font-semibold mt-0.5 md:mt-1 break-words">
-                               {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Buka Berkas Upload</a> : 
+                          <div key={col.name} className="flex flex-col border-b border-white/5 pb-3">
+                             <span className="text-[10px] md:text-xs text-gray-500 uppercase font-bold tracking-widest mb-1">{col.label}</span>
+                             <span className="text-sm md:text-base text-gray-100 font-semibold break-words">
+                               {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-2"/> Unduh Berkas</a> : 
                                 String(selectedDetail.data[col.name] || '').includes('GAGAL') ? <span className="text-red-400 text-[10px] bg-red-400/10 px-2 py-1 rounded">GAGAL UPLOAD (TIMEOUT)</span> : (selectedDetail.data[col.name] || '-')}
                              </span>
                           </div>
@@ -447,20 +460,22 @@ export default function PublicForm() {
                      </div>
                   </div>
 
-                  <div className="space-y-3 md:space-y-4 bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20 shadow-[0_0_20px_rgba(37,99,235,0.05)] h-fit">
-                     <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Status Tindak Lanjut</h4>
-                     <div className="space-y-2 md:space-y-3">
+                  {/* HASIL TINDAK LANJUT VERIFIKATOR */}
+                  <div className="space-y-4 bg-blue-900/10 p-6 md:p-8 rounded-2xl md:rounded-3xl border border-blue-500/20 shadow-[0_0_30px_rgba(37,99,235,0.05)] h-fit relative overflow-hidden">
+                     <div className="absolute top-0 left-0 w-full h-1.5 bg-blue-600"></div>
+                     <h4 className="text-sm md:text-base font-black text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-3 md:pb-4 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-xl"/> Status Tindak Lanjut</h4>
+                     <div className="space-y-4">
                        {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
-                          <p className="text-[10px] md:text-xs text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut dari sistem.</p>
+                          <p className="text-xs md:text-sm text-gray-500 italic p-6 text-center border border-dashed border-white/5 rounded-xl bg-black/20">Belum ada instrumen tindak lanjut dari sistem.</p>
                        ) : (
                           schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
                              const value = String(selectedDetail.data[col.name] || '').trim();
                              return (
-                               <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-2">
-                                  <span className="text-[8px] md:text-[9px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
-                                  <span className="text-xs md:text-sm text-white font-black mt-0.5 md:mt-1 break-words">
-                                    {value === '' ? <span className="text-gray-500 italic text-[10px] md:text-xs font-normal">Belum Diverifikasi</span> : 
-                                      value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Lihat Dokumen</a> : value}
+                               <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-3">
+                                  <span className="text-[10px] md:text-xs text-blue-400 uppercase font-bold tracking-widest mb-1">{col.label}</span>
+                                  <span className="text-sm md:text-base text-white font-black break-words">
+                                    {value === '' ? <span className="text-gray-500 italic text-xs font-normal">Belum Diverifikasi</span> : 
+                                      value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-2"/> Lihat Dokumen Lapangan</a> : value}
                                   </span>
                                </div>
                              );
@@ -471,9 +486,10 @@ export default function PublicForm() {
                 </div>
               </div>
 
-              <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl flex justify-end">
-                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition-all shadow-lg">
-                  <FontAwesomeIcon icon={faArrowLeft} className="mr-2"/> Tutup & Kembali
+              {/* FOOTER TOMBOL KEMBALI */}
+              <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-darker flex justify-end z-10 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-8 py-4 md:py-3 bg-gray-800 hover:bg-gray-700 text-white font-black rounded-xl text-xs md:text-sm uppercase tracking-widest transition-all">
+                  <FontAwesomeIcon icon={faArrowLeft} className="mr-3"/> Tutup Jendela Tracking
                 </button>
               </div>
 
