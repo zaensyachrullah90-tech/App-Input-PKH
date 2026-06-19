@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner } from '@fortawesome/free-solid-svg-icons';
+// IMPORT faLock TELAH DITAMBAHKAN DI SINI UNTUK MEMBASMI ERROR
+import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
@@ -29,7 +30,9 @@ export default function Responses() {
   const [activeSchema, setActiveSchema] = useState([]);
   
   const [isVerifikator, setIsVerifikator] = useState(false);
-  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
+  
+  // ID FOLDER DRIVE DIKUNCI MATI SECARA HARDCODE AGAR TIDAK MUNGKIN GAGAL KARENA LUPA
+  const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMeta, setExportMeta] = useState(() => {
@@ -325,7 +328,7 @@ export default function Responses() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif.</p>
+            <p className="text-gray-500 text-[10px] mt-2">Sinkronisasi dokumen ke Drive sedang berjalan.</p>
           </div>
         </div>
       )}
@@ -350,11 +353,12 @@ export default function Responses() {
         </div>
       )}
 
-      {/* VERIFICATOR WORKSPACE - DENGAN PENGUNCIAN DATA PEMOHON */}
+      {/* VERIFICATOR WORKSPACE - MODAL FULL RESPONSIVE FIX (FLEX STRICT HEIGHT) */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
             
+            {/* HEADER MODAL TERKUNCI */}
             <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
               <button onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
               <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
@@ -362,13 +366,15 @@ export default function Responses() {
             </div>
 
             <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 min-h-0">
+              
+              {/* BODY SCROLLABLE INTERNAL (TIDAK AKAN TERPOTONG) */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 pb-4">
                   
                   <div className="lg:col-span-1 space-y-4">
                     <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
                       <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
-                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut. Data isian pemohon telah dikunci demi keamanan.</p>
+                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Isi form tindak lanjut. Data pemohon telah dikunci demi keamanan data.</p>
                     </div>
                     
                     <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
@@ -397,19 +403,19 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MULTAK: Verifikator tidak bisa mengedit data pemohon
+                        // PENGUNCIAN MUTLAK DATA PEMOHON UNTUK VERIFIKATOR
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
-                        
+
                         const existingValue = verifyEditData[field.name];
                         const hasFileUploaded = typeof existingValue === 'string' && existingValue.startsWith('http');
 
                         return (
-                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : 'opacity-80'} ${isFile ? 'md:col-span-2' : ''}`}>
+                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : 'opacity-90'} ${isFile ? 'md:col-span-2' : ''}`}>
                             <label className="text-[9px] md:text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
-                              <span>{field.label} {isDisabled && !isSystemGenerated && <span className="ml-1 text-[7px] bg-white/10 px-1 py-0.5 rounded text-white"><FontAwesomeIcon icon={faLock}/> Terkunci</span>}</span>
+                              <span>{field.label} {isDisabled && !isSystemGenerated && <span className="ml-1 text-[7px] bg-white/10 px-1.5 py-0.5 rounded text-white"><FontAwesomeIcon icon={faLock}/> KUNCI</span>}</span>
                               {hasFileUploaded && (
-                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka Berkas Pemohon</a>
+                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka Berkas</a>
                               )}
                             </label>
 
@@ -468,6 +474,7 @@ export default function Responses() {
                 </div>
               </div>
 
+              {/* FOOTER MODAL TERKUNCI DI BAWAH */}
               <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl">
                 <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
                   <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut Verifikasi
