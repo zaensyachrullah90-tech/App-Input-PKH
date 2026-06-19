@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
@@ -168,6 +168,39 @@ export default function Responses() {
     setVerifyEditData(newFormData);
   };
 
+  const compressImage = (file) => {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = error => reject(error);
+        return;
+      }
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200; const MAX_HEIGHT = 1200;
+          let width = img.width; let height = img.height;
+          if (width > height) {
+            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+          } else {
+            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+          }
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+        };
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
   const handleSaveVerify = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -178,26 +211,15 @@ export default function Responses() {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
           try {
-            const base64String = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.readAsDataURL(fileObject);
-              reader.onload = () => resolve(reader.result.split(',')[1]);
-            });
-
+            const base64String = await compressImage(fileObject);
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) {
-              finalData[key] = driveData.link;
-            } else {
-              throw new Error(driveData.error || 'Server Timeout');
-            }
-          } catch(err) {
-             console.error("Upload Error:", err);
-             finalData[key] = 'GAGAL UPLOAD (Sistem Menolak)';
-          }
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error('Timeout'); }
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD (TIMEOUT)'; }
         }
       });
 
@@ -211,9 +233,7 @@ export default function Responses() {
       fetchResponses(selectedFormId);
     } catch (err) { 
       toast.error('Gagal menyimpan verifikasi.'); 
-    } finally {
-      setIsSaving(false);
-    }
+    } finally { setIsSaving(false); }
   };
 
   const handleExportExcel = () => {
@@ -300,15 +320,12 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
-      {/* ========================================== */}
-      {/* PANEL LOADING TRANSISI INSTAN TENGAH LAYAR */}
-      {/* ========================================== */}
       {isSaving && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Sinkronisasi dokumen paralel sedang berjalan.</p>
+            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif.</p>
           </div>
         </div>
       )}
@@ -333,12 +350,11 @@ export default function Responses() {
         </div>
       )}
 
-      {/* VERIFICATOR WORKSPACE - MODAL FULL RESPONSIVE FIX (FLEX STRICT HEIGHT) */}
+      {/* VERIFICATOR WORKSPACE - DENGAN PENGUNCIAN DATA PEMOHON */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
             
-            {/* STICKY HEADER (TETAP DI ATAS) */}
             <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
               <button onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
               <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
@@ -346,16 +362,13 @@ export default function Responses() {
             </div>
 
             <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 min-h-0">
-              
-              {/* BODY SCROLLABLE INTERNAL (TIDAK AKAN TERPOTONG KARENA MIN-H-0) */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 pb-4">
                   
-                  {/* KOLOM KIRI: INFO ROLE ATAU SUNTIK HEADER */}
                   <div className="lg:col-span-1 space-y-4">
                     <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
                       <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
-                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut dan unggah berkas bukti fisik jika tersedia.</p>
+                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut. Data isian pemohon telah dikunci demi keamanan.</p>
                     </div>
                     
                     <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
@@ -369,12 +382,11 @@ export default function Responses() {
                           <option value="file">Upload Berkas (Drive)</option>
                         </select>
                         {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs h-16" />}
-                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header</button>
+                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header</button>
                       </div>
                     </div>
                   </div>
 
-                  {/* KOLOM KANAN: FORM PENGISIAN */}
                   <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                       {activeSchema.map((field) => {
@@ -385,23 +397,26 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // PENYEMPURNAAN INSPEKSI: Buka Berkas Pemohon
+                        // KUNCI MULTAK: Verifikator tidak bisa mengedit data pemohon
+                        const isApplicantData = !field.adminLocked;
+                        const isDisabled = isSystemGenerated || isApplicantData;
+                        
                         const existingValue = verifyEditData[field.name];
                         const hasFileUploaded = typeof existingValue === 'string' && existingValue.startsWith('http');
 
                         return (
-                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''} ${isFile ? 'md:col-span-2' : ''}`}>
+                          <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : 'opacity-80'} ${isFile ? 'md:col-span-2' : ''}`}>
                             <label className="text-[9px] md:text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
-                              <span>{field.label}</span>
+                              <span>{field.label} {isDisabled && !isSystemGenerated && <span className="ml-1 text-[7px] bg-white/10 px-1 py-0.5 rounded text-white"><FontAwesomeIcon icon={faLock}/> Terkunci</span>}</span>
                               {hasFileUploaded && (
-                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka Berkas</a>
+                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka Berkas Pemohon</a>
                               )}
                             </label>
 
                             {isFile ? (
                               <div className="relative">
-                                <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
-                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3.5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                                <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isDisabled} className="hidden" id={`vfile-${field.name}`}/>
+                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3.5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isDisabled ? 'bg-white/5 border-white/5 text-gray-500 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-2 text-primary" />
                                   <span className="truncate max-w-[150px] md:max-w-[200px]">
                                     {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Pilih / Ambil Foto Berkas Lapangan...')}
@@ -410,7 +425,7 @@ export default function Responses() {
                               </div>
                             ) : isSelect ? (
                               <div className="relative">
-                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
+                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isDisabled} className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isDisabled ? 'bg-white/5 border-white/5 text-gray-400 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
                                     {(() => {
                                        let selectOptions = field.options || [];
@@ -440,8 +455,8 @@ export default function Responses() {
                                   name={field.name}
                                   value={isSystemGenerated ? (verifyEditData[field.name] || '-') : (verifyEditData[field.name] || '')}
                                   onChange={(e) => handleVerifyInputChange(e, field)}
-                                  disabled={isSystemGenerated}
-                                  className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3.5'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
+                                  disabled={isDisabled}
+                                  className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3'} ${isDisabled ? 'bg-white/5 border-white/5 text-gray-400 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
                                 />
                               </div>
                             )}
@@ -453,10 +468,9 @@ export default function Responses() {
                 </div>
               </div>
 
-              {/* FOOTER MODAL (TERKUNCI DI BAWAH) */}
               <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl">
                 <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
-                  <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
+                  <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut Verifikasi
                 </button>
               </div>
 
@@ -479,7 +493,7 @@ export default function Responses() {
         </div>
       </div>
       
-      {/* DATA VIEW TABEL DENGAN INDIKATOR ERROR UPLOAD */}
+      {/* DATA VIEW */}
       <div className="bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="min-w-full text-left text-[10px] md:text-xs lg:text-sm whitespace-nowrap">
@@ -499,18 +513,10 @@ export default function Responses() {
                       const colNameLower = col.name.toLowerCase();
                       let displayValue = res.data[col.name] || '-';
                       if (colNameLower === 'no' || colNameLower === 'nomor') displayValue = responses.length - index; 
-                      
                       return (
                         <td key={col.name} className="px-4 md:px-6 py-3 md:py-4 text-gray-300 truncate max-w-[150px] md:max-w-[200px]">
-                          {(() => {
-                             const valStr = String(displayValue);
-                             if (valStr.startsWith('http')) {
-                               return <a href={valStr} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1.5"><FontAwesomeIcon icon={faDownload} /> UNDUH BERKAS</a>;
-                             } else if (valStr.includes('GAGAL') || valStr.includes('Lokal')) {
-                               return <span className="text-red-400 font-bold bg-red-400/10 px-2 py-1.5 rounded-md text-[9px] border border-red-500/20">GAGAL UPLOAD (TIMEOUT)</span>;
-                             }
-                             return valStr;
-                          })()}
+                          {String(displayValue).startsWith('http') ? <a href={displayValue} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faFileDownload} className="mr-1.5" /> UNDUH</a> : 
+                           String(displayValue).includes('GAGAL') ? <span className="text-red-400 font-bold bg-red-400/10 px-2 py-1.5 rounded-md text-[9px] border border-red-500/20">GAGAL UPLOAD</span> : displayValue}
                         </td>
                       );
                     })}
