@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faFileDownload, faFileOpening, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileOpen } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
@@ -44,7 +44,6 @@ export default function Responses() {
   const [verifyEditData, setVerifyEditData] = useState({}); 
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
-  // PENGAMAN MEMORI UNTUK VERIFIKATOR FILE RESIZE UPLOAD
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
 
   useEffect(() => { 
@@ -106,6 +105,16 @@ export default function Responses() {
     } catch (err) {}
   };
 
+  const formatRupiah = (angka) => {
+    const numberString = angka.toString().replace(/[^,\d]/g, '');
+    const split = numberString.split(',');
+    const sisa = split[0].length % 3;
+    let rupiah = split[0].substr(0, sisa);
+    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
+    if (ribuan) { rupiah += (sisa ? '.' : '') + ribuan.join('.'); }
+    return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
+  };
+
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
@@ -127,7 +136,6 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
-  // Optimasi Unggah Berkas Ringan Sisi Verifikator
   const handleVerifyFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -165,7 +173,6 @@ export default function Responses() {
     let finalData = { ...verifyEditData };
 
     try {
-      // PROSES KONVERSI BASE64 & UPLOAD SEKUANSIAL ANTI TIMEOUT
       for (const key of Object.keys(rawVerifyFiles)) {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
@@ -198,7 +205,6 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
   };
 
-  // REKAYASA EXPORT DATA LAPORAN (BLUEPRINT UNTUK LAMPIRAN LANDSCAPE)
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
@@ -303,12 +309,11 @@ export default function Responses() {
         </div>
       )}
 
-      {/* VERIFICATOR WORKSPACE - MODAL FULL RESPONSIVE FIX */}
+      {/* VERIFICATOR WORKSPACE */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden py-10">
-          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative my-auto animate-fade-in-up max-h-[95vh] md:max-h-[90vh] flex flex-col">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
             
-            {/* STICKY HEADER (TETAP DI ATAS) */}
             <div className="flex-none p-5 md:p-8 border-b border-white/10 pr-14 relative">
               <button onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="absolute top-5 md:top-8 right-5 md:right-8 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
               <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
@@ -316,10 +321,9 @@ export default function Responses() {
             </div>
 
             <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 overflow-hidden">
-              
-              {/* BODY SCROLLABLE INTERNAL */}
               <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
                   <div className="lg:col-span-1 space-y-4">
                     <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
                       <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
@@ -352,16 +356,15 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // PENYEMPURNAAN INSPEKSI: Deteksi Jika Kolom Bertautan File URL
                         const existingValue = verifyEditData[field.name];
                         const hasFileUploaded = typeof existingValue === 'string' && existingValue.startsWith('http');
 
                         return (
                           <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''} ${isFile ? 'md:col-span-2' : ''}`}>
-                            <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
+                            <label className="text-[9px] md:text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
                               <span>{field.label}</span>
                               {hasFileUploaded && (
-                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFileOpen} className="mr-1"/> Buka Berkas Pemohon</a>
+                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] text-primary underline font-black uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faFolderOpen} className="mr-1"/> Buka Berkas Pemohon</a>
                               )}
                             </label>
 
@@ -397,7 +400,7 @@ export default function Responses() {
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
-                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
+                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
                             ) : (
                               <div className="relative flex items-center">
@@ -420,9 +423,8 @@ export default function Responses() {
                 </div>
               </div>
 
-              {/* STICKY FOOTER BUTTON (TERKUNCI DI BAWAH) */}
               <div className="flex-none p-4 md:p-8 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl">
-                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] text-[10px] md:text-xs">
+                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
                   <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut Verifikasi
                 </button>
               </div>
@@ -432,7 +434,7 @@ export default function Responses() {
         </div>
       )}
 
-      {/* MONITORING PANEL PANEL */}
+      {/* HEADER MONITORING PANEL UTAMA */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 md:pb-6 gap-3 md:gap-4">
         <div><h2 className="text-xl md:text-2xl lg:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-2 md:mr-3 text-primary" /> Executive Data Table</h2></div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3 w-full md:w-auto">
