@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faFileDownload, faFileExcel, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFilter, faFileDownload, faFileExcel, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faPaperclip } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
@@ -53,6 +53,7 @@ export default function Responses() {
   const [activeSchema, setActiveSchema] = useState([]);
   
   const [isVerifikator, setIsVerifikator] = useState(false);
+  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMeta, setExportMeta] = useState(() => {
@@ -158,6 +159,19 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
+  // ==========================================
+  // FITUR BARU: AUTO UPLOAD BERKAS VERIFIKATOR
+  // ==========================================
+  const handleVerifyFileChange = (e, fieldName) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setVerifyEditData(prev => ({ ...prev, [fieldName]: { isFile: true, fileName: file.name, mimeType: file.type, base64Data: reader.result.split(',')[1] } }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleVerifyInputChange = (e, field) => {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
@@ -188,10 +202,29 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    const toastId = toast.loading('Menyimpan Tindak Lanjut Verifikasi...');
+    const toastId = toast.loading('Memproses Data & Lampiran Tindak Lanjut...');
+    let finalData = { ...verifyEditData };
+
     try {
-      await supabase.from('form_responses').update({ data: verifyEditData }).eq('id', verifyData.id);
-      toast.success('Hasil Verifikasi Berhasil Disimpan!', { id: toastId });
+      // PROSES SINKRONISASI GOOGLE DRIVE UNTUK BERKAS VERIFIKATOR
+      for (const key in finalData) {
+        if (finalData[key]?.isFile) {
+          toast.loading(`Mengunggah berkas ${key.toUpperCase()} ke Pusat Cloud...`, { id: toastId });
+          try {
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
+            });
+            const driveData = await res.json();
+            finalData[key] = driveData.link || 'Gagal Upload';
+          } catch(e) { finalData[key] = 'Tersimpan Lokal'; }
+        }
+      }
+
+      toast.loading('Menyimpan Hasil Tindak Lanjut ke Database...', { id: toastId });
+      await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
+      
+      toast.success('Hasil Verifikasi Berhasil Disimpan & Disinkronisasi!', { id: toastId });
       setShowVerifyModal(false);
       fetchResponses(selectedFormId);
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
@@ -324,6 +357,8 @@ export default function Responses() {
                     <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
                       <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
                       <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                      {/* OPSI UPLOAD BERKAS DI RUANG VERIFIKATOR DIBUKA UNTUK ADMIN */}
+                      <option value="file">Upload Berkas (Drive)</option>
                     </select>
                     {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
                     <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
@@ -332,7 +367,7 @@ export default function Responses() {
               ) : (
                 <div className="lg:col-span-1 bg-blue-900/10 p-5 rounded-2xl border border-blue-500/20 h-fit">
                   <h4 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> Mode Verifikator</h4>
-                  <p className="text-[11px] text-gray-400 leading-relaxed">Anda sedang berada di ruang verifikasi. Silakan isi kolom yang tersedia untuk menindaklanjuti data permohonan ini.</p>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">Anda sedang berada di ruang verifikasi. Silakan isi kolom dan unggah berkas bukti fisik (jika tersedia) untuk menindaklanjuti data permohonan ini.</p>
                 </div>
               )}
 
@@ -345,6 +380,7 @@ export default function Responses() {
                         const isSelect = field.type === 'select' || isRegionField;
                         const isCurrency = field.type === 'currency';
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
+                        const isFile = field.type === 'file';
 
                         return (
                           <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''}`}>
@@ -353,7 +389,19 @@ export default function Responses() {
                               {field.adminLocked && !isSystemGenerated && <span className="text-[8px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-black">KOLOM VERIFIKASI</span>}
                             </label>
 
-                            {isSelect ? (
+                            {/* LOGIKA KHUSUS RENDER UPLOAD BERKAS UNTUK VERIFIKATOR */}
+                            {isFile ? (
+                              <div className="relative">
+                                <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
+                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                                  <FontAwesomeIcon icon={faUpload} className="mr-2 text-primary" />
+                                  <span className="truncate max-w-[200px]">
+                                    {verifyEditData[field.name]?.fileName || 
+                                    (typeof verifyEditData[field.name] === 'string' && verifyEditData[field.name].startsWith('http') ? 'Berkas Tersimpan (Klik Ganti)' : 'Pilih Lampiran Berkas...')}
+                                  </span>
+                                </label>
+                              </div>
+                            ) : isSelect ? (
                               <div className="relative">
                                  <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
