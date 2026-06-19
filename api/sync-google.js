@@ -1,10 +1,11 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
+// TINGKATKAN BATAS PAYLOAD KE MAKSIMAL VERCEL (25MB)
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb', // Menjaga agar upload foto ukuran besar dari HP tidak terputus di Vercel
+      sizeLimit: '25mb',
     },
   },
 };
@@ -15,19 +16,34 @@ export default async function handler(req, res) {
   try {
     const { action } = req.body;
     
+    const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
+
+    if (!clientEmail || !privateKeyRaw) {
+       return res.status(500).json({ error: 'Kunci API Vercel Kosong. Hubungi Administrator.' });
+    }
+
+    // ALGORITMA ANTI-PATAH: Memperbaiki format kunci Vercel yang rusak akibat kutip ganda
+    let formattedKey = privateKeyRaw.replace(/\\n/g, '\n');
+    if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
+      formattedKey = formattedKey.slice(1, -1);
+    }
+
+    // Otorisasi Robot
     const auth = new google.auth.JWT(
-      process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      clientEmail,
       null,
-      (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+      formattedKey,
       ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
     );
 
     const drive = google.drive({ version: 'v3', auth });
-    const googleSheetsClient = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: 'v4', auth });
 
-    // JANGKAR PENGAMAN: Jika folderId dari browser pemohon kosong, paksa arahkan ke Drive Anda
+    // TARGET FOLDER HARDCODE MUTLAK
     const targetFolderId = req.body.folderId || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
+    // 1. MESIN UPLOAD BERKAS
     if (action === 'uploadFile') {
       const { fileName, mimeType, base64Data } = req.body;
       const buffer = Buffer.from(base64Data, 'base64');
@@ -35,48 +51,69 @@ export default async function handler(req, res) {
       stream.push(buffer);
       stream.push(null);
 
-      const fileMetadata = { name: fileName, parents: [targetFolderId] };
-      const media = { mimeType, body: stream };
+      try {
+        const file = await drive.files.create({
+          resource: { name: fileName, parents: [targetFolderId] },
+          media: { mimeType, body: stream },
+          fields: 'id, webViewLink'
+        });
 
-      const file = await drive.files.create({
-        resource: fileMetadata, media: media, fields: 'id, webViewLink'
-      });
+        await drive.permissions.create({
+          fileId: file.data.id,
+          requestBody: { role: 'reader', type: 'anyone' }
+        });
 
-      await drive.permissions.create({
-        fileId: file.data.id, requestBody: { role: 'reader', type: 'anyone' }
-      });
-
-      return res.status(200).json({ link: file.data.webViewLink });
+        return res.status(200).json({ link: file.data.webViewLink });
+      } catch (driveErr) {
+        console.error("Drive Error:", driveErr.message);
+        return res.status(500).json({ error: `Gagal Akses Drive: Pastikan email robot sudah jadi Editor di folder.` });
+      }
     }
 
+    // 2. MESIN PEMBUAT FORM SPREADSHEET
     if (action === 'createForm') {
-      const { title } = req.body;
-      const fileMetadata = { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [targetFolderId] };
-      const file = await drive.files.create({ resource: fileMetadata, fields: 'id, webViewLink' });
-      
-      await drive.permissions.create({
-        fileId: file.data.id, requestBody: { role: 'writer', type: 'anyone' }
-      });
+      try {
+        const { title } = req.body;
+        const file = await drive.files.create({
+          resource: { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [targetFolderId] },
+          fields: 'id, webViewLink'
+        });
+        
+        await drive.permissions.create({
+          fileId: file.data.id,
+          requestBody: { role: 'writer', type: 'anyone' }
+        });
 
-      return res.status(200).json({ spreadsheetId: file.data.id, spreadsheetUrl: file.data.webViewLink });
+        return res.status(200).json({ spreadsheetId: file.data.id, spreadsheetUrl: file.data.webViewLink });
+      } catch (err) {
+        return res.status(500).json({ error: 'Gagal membuat Google Sheet.' });
+      }
     }
 
+    // 3. MESIN PENULIS BARIS SPREADSHEET
     if (action === 'appendRow') {
-      const { spreadsheetId, schema, rowData } = req.body;
-      const rowValues = schema.map(col => rowData[col.name] || '');
+      try {
+        const { spreadsheetId, schema, rowData } = req.body;
+        const rowValues = schema.map(col => rowData[col.name] || '');
 
-      await googleSheetsClient.spreadsheets.values.append({
-        spreadsheetId, range: 'Sheet1!A1', valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [rowValues] }
-      });
+        await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Sheet1!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [rowValues] }
+        });
 
-      return res.status(200).json({ success: true });
+        return res.status(200).json({ success: true });
+      } catch (sheetErr) {
+        console.error("Sheet Error:", sheetErr.message);
+        return res.status(500).json({ error: 'Gagal menulis ke Spreadsheet. Pastikan Google Sheets API aktif.' });
+      }
     }
 
     return res.status(400).json({ error: 'Aksi Sistem tidak dikenali' });
 
   } catch (error) {
-    console.error('Google API Error:', error);
-    return res.status(500).json({ error: error.message || 'Gagal terhubung ke Google Cloud.' });
+    console.error('Core Backend Error:', error.message);
+    return res.status(500).json({ error: 'Kunci Akses Google JSON Salah atau Kedaluwarsa.' });
   }
 }
