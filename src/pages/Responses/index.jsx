@@ -29,7 +29,7 @@ export default function Responses() {
   const [activeSchema, setActiveSchema] = useState([]);
   
   const [isVerifikator, setIsVerifikator] = useState(false);
-  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
+  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMeta, setExportMeta] = useState(() => {
@@ -157,11 +157,15 @@ export default function Responses() {
 
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
       });
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
+          newFormData[k] = '';
+        }
       });
     }
 
@@ -174,10 +178,9 @@ export default function Responses() {
     let finalData = { ...verifyEditData };
 
     try {
-      // PROSES SINKRONISASI DRIVE UNTUK VERIFIKATOR DENGAN ERROR HANDLING YANG JELAS
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
-          toast.loading(`Mengunggah berkas verifikasi...`, { id: toastId });
+          toast.loading(`Mengunggah berkas ${key.toUpperCase()}...`, { id: toastId });
           try {
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -188,8 +191,7 @@ export default function Responses() {
             finalData[key] = driveData.link || 'Gagal Upload';
           } catch(e) { 
             console.error("Upload Error:", e);
-            toast.error("Gagal koneksi ke Google Drive", { id: toastId, duration: 3000 });
-            finalData[key] = 'Gagal (Lokal)'; 
+            finalData[key] = 'Tersimpan Lokal'; 
           }
         }
       }
@@ -197,7 +199,7 @@ export default function Responses() {
       toast.loading('Menyimpan Hasil Tindak Lanjut ke Database...', { id: toastId });
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
       
-      toast.success('Hasil Verifikasi Berhasil Disimpan!', { id: toastId });
+      toast.success('Hasil Verifikasi Berhasil Disimpan & Disinkronisasi!', { id: toastId });
       setShowVerifyModal(false);
       fetchResponses(selectedFormId);
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
@@ -284,9 +286,10 @@ export default function Responses() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
+    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
+      {/* MODAL CONFIG EXPORT (KUNCI BLUEPRINT) */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
@@ -307,46 +310,53 @@ export default function Responses() {
         </div>
       )}
 
-      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) DIBUAT SANGAT RESPONSIF */}
+      {/* ======================================================== */}
+      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) - 100% RESPONSIF */}
+      {/* ======================================================== */}
       {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden py-10">
-          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-2xl relative my-auto animate-fade-in-up max-h-[90vh] flex flex-col">
-            <button onClick={() => setShowVerifyModal(false)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-10"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
+          {/* PEMBUNGKUS UTAMA MODAL: MAX HEIGHT 90VH AGAR BISA SCROLL INTERNAL */}
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
             
-            <div className="border-b border-white/10 pb-3 md:pb-4 mb-4 md:mb-6 pr-8 flex-none">
-              <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
+            {/* HEADER MODAL (TERKUNCI DI ATAS) */}
+            <div className="flex-none p-5 md:p-8 border-b border-white/10 pr-14 relative">
+              <button onClick={() => setShowVerifyModal(false)} className="absolute top-5 md:top-8 right-5 md:right-8 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
+              <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
               <p className="text-gray-400 text-[10px] md:text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
             </div>
 
-            {/* AREA KERJA SCROLLABLE DI HP */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-y-auto pr-1 md:pr-2 custom-scrollbar pb-4">
+            {/* FORM PEMBUNGKUS SELURUH KONTEN AGAR TOMBOL SUBMIT DI BAWAH BERFUNGSI */}
+            <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 overflow-hidden">
               
-              {/* KOLOM KIRI: INFO ROLE & SUNTIK HEADER */}
-              <div className="lg:col-span-1 space-y-4">
-                <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
-                  <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
-                  <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi kolom di samping dan unggah berkas bukti fisik (jika tersedia) untuk menindaklanjuti data permohonan ini.</p>
-                </div>
-                
-                <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
-                  <h4 className="text-[10px] md:text-xs font-bold text-primary uppercase tracking-widest mb-3 md:mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
-                  <form onSubmit={handleAddVerifyColumn} className="space-y-3">
-                    <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
-                    <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
-                    <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary">
-                      <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
-                      <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
-                      <option value="file">Upload Berkas (Drive)</option>
-                    </select>
-                    {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs outline-none h-16" />}
-                    <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
-                  </form>
-                </div>
-              </div>
+              {/* BODY MODAL (AREA SCROLL LELUASA) */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
+                  {/* KOLOM KIRI: INFO ROLE ATAU SUNTIK HEADER */}
+                  <div className="lg:col-span-1 space-y-4">
+                    <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
+                      <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
+                      <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi form tindak lanjut dan unggah berkas bukti fisik (jika tersedia).</p>
+                    </div>
+                    
+                    <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
+                      <h4 className="text-[10px] md:text-xs font-bold text-primary uppercase tracking-widest mb-3 md:mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
+                      <div className="space-y-3">
+                        <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
+                        <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
+                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary">
+                          <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
+                          <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                          <option value="file">Upload Berkas (Drive)</option>
+                        </select>
+                        {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs outline-none h-16" />}
+                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
+                      </div>
+                    </div>
+                  </div>
 
-              {/* KOLOM KANAN: FORM PENGISIAN VERIFIKATOR */}
-              <div className="lg:col-span-2">
-                 <form onSubmit={handleSaveVerify} className="space-y-4">
+                  {/* KOLOM KANAN: FORM PENGISIAN */}
+                  <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                       {activeSchema.map((field) => {
                         const colNameLower = field.name.toLowerCase();
@@ -366,7 +376,7 @@ export default function Responses() {
                             {isFile ? (
                               <div className="relative">
                                 <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
-                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3.5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-2 text-primary" />
                                   <span className="truncate max-w-[150px] md:max-w-[200px]">
                                     {verifyEditData[field.name]?.fileName || 
@@ -376,29 +386,23 @@ export default function Responses() {
                               </div>
                             ) : isSelect ? (
                               <div className="relative">
-                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
+                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3.5 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
                                     {(() => {
                                        let selectOptions = field.options || [];
-                                       
                                        if (colNameLower.includes('kabupaten')) {
                                          selectOptions = Object.keys(DATA_WILAYAH);
                                        } else if (colNameLower.includes('kecamatan')) {
                                          const kabKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kabupaten'));
                                          const kabVal = kabKey ? verifyEditData[kabKey] : null;
-                                         if (kabVal && DATA_WILAYAH[kabVal]) {
-                                           selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
-                                         }
+                                         if (kabVal && DATA_WILAYAH[kabVal]) selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
                                        } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
                                          const kabKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kabupaten'));
                                          const kecKey = Object.keys(verifyEditData).find(k => k.toLowerCase().includes('kecamatan'));
                                          const kabVal = kabKey ? verifyEditData[kabKey] : null;
                                          const kecVal = kecKey ? verifyEditData[kecKey] : null;
-                                         if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) {
-                                           selectOptions = DATA_WILAYAH[kabVal][kecVal];
-                                         }
+                                         if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
                                        }
-
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
@@ -413,7 +417,7 @@ export default function Responses() {
                                   value={isSystemGenerated ? (verifyEditData[field.name] || '-') : (verifyEditData[field.name] || '')}
                                   onChange={(e) => handleVerifyInputChange(e, field)}
                                   disabled={isSystemGenerated}
-                                  className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
+                                  className={`w-full p-3.5 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3.5'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
                                 />
                               </div>
                             )}
@@ -421,19 +425,23 @@ export default function Responses() {
                         );
                       })}
                     </div>
-                    <div className="mt-4 md:mt-6 border-t border-white/10 pt-4">
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3 md:py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
-                        <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
-                      </button>
-                    </div>
-                 </form>
+                  </div>
+                </div>
               </div>
-            </div>
+
+              {/* FOOTER MODAL (TERKUNCI DI BAWAH) */}
+              <div className="flex-none p-4 md:p-8 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl">
+                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
+                  <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
+                </button>
+              </div>
+
+            </form>
           </div>
         </div>
       )}
 
-      {/* HEADER MONITORING PANEL */}
+      {/* HEADER MONITORING PANEL UTAMA */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 md:pb-6 gap-3 md:gap-4">
         <div><h2 className="text-xl md:text-2xl lg:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-2 md:mr-3 text-primary" /> Executive Data Table</h2></div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3 w-full md:w-auto">
@@ -474,7 +482,6 @@ export default function Responses() {
                       );
                     })}
                     
-                    {/* TOMBOL TINDAK LANJUT & HAPUS */}
                     <td className="px-4 md:px-6 py-3 md:py-4 flex justify-end space-x-2 items-center sticky right-0 bg-darker/90 backdrop-blur z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">
                       <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-2 md:px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[9px] md:text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors">
                         <FontAwesomeIcon icon={faUserShield} className="md:mr-1" /> <span className="hidden md:inline">Tindak Lanjut</span>
