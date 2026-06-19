@@ -45,6 +45,7 @@ export default function Responses() {
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => { 
     fetchForms(); 
@@ -105,16 +106,6 @@ export default function Responses() {
     } catch (err) {}
   };
 
-  const formatRupiah = (angka) => {
-    const numberString = angka.toString().replace(/[^,\d]/g, '');
-    const split = numberString.split(',');
-    const sisa = split[0].length % 3;
-    let rupiah = split[0].substr(0, sisa);
-    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
-    if (ribuan) { rupiah += (sisa ? '.' : '') + ribuan.join('.'); }
-    return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
-  };
-
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
@@ -169,40 +160,45 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    const toastId = toast.loading('Memproses Data & Lampiran Tindak Lanjut...');
+    setIsSaving(true);
     let finalData = { ...verifyEditData };
 
     try {
-      for (const key of Object.keys(rawVerifyFiles)) {
+      const uploadPromises = Object.keys(rawVerifyFiles).map(async (key) => {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
-          toast.loading(`Mengunggah dokumen ${fileObject.name} ke Drive...`, { id: toastId });
-          try {
-            const base64String = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.readAsDataURL(fileObject);
-              reader.onload = () => resolve(reader.result.split(',')[1]);
-            });
+          const base64String = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(fileObject);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+          });
 
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
-            });
-            const driveData = await res.json();
-            if(!res.ok) throw new Error(driveData.error);
-            finalData[key] = driveData.link || 'Gagal Upload';
-          } catch(e) { finalData[key] = 'Gagal (Lokal)'; }
+          const res = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
+          });
+          const driveData = await res.json();
+          if(res.ok && driveData.link) {
+            finalData[key] = driveData.link;
+          } else {
+            finalData[key] = 'Gagal Upload';
+          }
         }
-      }
+      });
 
-      toast.loading('Menyimpan Hasil Tindak Lanjut ke Database...', { id: toastId });
+      await Promise.all(uploadPromises);
+
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
       
-      toast.success('Hasil Verifikasi Berhasil Disimpan & Disinkronisasi!', { id: toastId });
+      toast.success('Hasil Verifikasi Berhasil Diamankan!');
       setShowVerifyModal(false);
       setRawVerifyFiles({});
       fetchResponses(selectedFormId);
-    } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
+    } catch (err) { 
+      toast.error('Gagal menyimpan verifikasi.'); 
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleExportExcel = () => {
@@ -289,6 +285,18 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
+      {/* ========================================== */}
+      {/* PANEL LOADING TRANSISI INSTAN TENGAH LAYAR */}
+      {/* ========================================== */}
+      {isSaving && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex flex-col justify-center items-center">
+          <div className="bg-[#0f172a] border border-white/10 p-6 rounded-2xl flex flex-col items-center shadow-2xl">
+            <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-3" />
+            <p className="text-white text-xs font-black uppercase tracking-widest">Menyimpan Hasil Tindak Lanjut...</p>
+          </div>
+        </div>
+      )}
+
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
@@ -309,10 +317,10 @@ export default function Responses() {
         </div>
       )}
 
-      {/* VERIFICATOR WORKSPACE */}
+      {/* RUANG KERJA VERIFIKATOR - FIXED HEADER FOOTER SCROLLABLE MIDDLE */}
       {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden py-10">
-          <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col max-h-[95vh] md:max-h-[90vh] animate-fade-in-up">
             
             <div className="flex-none p-5 md:p-8 border-b border-white/10 pr-14 relative">
               <button onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="absolute top-5 md:top-8 right-5 md:right-8 text-gray-400 hover:text-white bg-black/50 p-2 rounded-full w-8 h-8 flex items-center justify-center z-10"><FontAwesomeIcon icon={faTimes} /></button>
@@ -400,7 +408,7 @@ export default function Responses() {
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
-                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
+                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
                             ) : (
                               <div className="relative flex items-center">
@@ -454,8 +462,8 @@ export default function Responses() {
           <table className="min-w-full text-left text-[10px] md:text-xs lg:text-sm whitespace-nowrap">
             <thead className="uppercase tracking-wider border-b-2 border-gray-800 bg-black/50">
               <tr>
-                {activeSchema.map(col => <th key={col.name} className="px-4 md:px-6 py-4 md:py-5 font-bold text-gray-300">{col.label}</th>)}
-                <th className="px-4 md:px-6 py-4 md:py-5 font-black text-gray-400 text-right sticky right-0 bg-darker z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">Otoritas Aksi</th>
+                {activeSchema.map(col => <th key={col.name} className="px-6 py-5 font-bold text-gray-300">{col.label}</th>)}
+                <th className="px-6 py-5 font-black text-gray-400 text-right sticky right-0 bg-darker z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">Otoritas Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
@@ -476,7 +484,7 @@ export default function Responses() {
                     })}
                     
                     <td className="px-4 md:px-6 py-3 md:py-4 flex justify-end space-x-2 items-center sticky right-0 bg-darker/90 backdrop-blur z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">
-                      <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-2 md:px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[9px] md:text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors">
+                      <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors">
                         <FontAwesomeIcon icon={faUserShield} className="md:mr-1" /> <span className="hidden md:inline">Tindak Lanjut</span>
                       </button>
 
