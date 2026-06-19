@@ -87,6 +87,7 @@ export default function Surat() {
       toast.success('Draf Disusun AI!', { id: toastId });
     } catch (err) { 
       toast.error(`AI Gagal: ${err.message}`, { id: toastId }); 
+      console.error(err);
     } 
     finally { setIsProcessing(false); }
   };
@@ -141,7 +142,10 @@ export default function Surat() {
       setShowModal(false);
       setFormData(prev => ({ ...prev, ai_prompt: '', file_lampiran: null }));
       fetchLetters();
-    } catch (err) { toast.error('Gagal menyimpan ke Database!', { id: toastId }); }
+    } catch (err) { 
+      toast.error('Gagal menyimpan ke Database!', { id: toastId }); 
+      console.error(err);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -241,16 +245,19 @@ export default function Surat() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20 animate-fade-in relative p-3 md:p-0">
-      <Toaster #374151' '#111827', '#fff', '1px background: border: color: position="top-right" solid style: toastOptions="{{" { } }}/>
+      
+      {/* INILAH TOASTER YANG SUDAH DIPERBAIKI TOTAL */}
+      <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
+
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase flex items-center">
-            <FontAwesomeIcon className="mr-3 text-primary" icon="{faEnvelopeOpenText}"/> Smart E-Letter Archive
+            <FontAwesomeIcon icon={faEnvelopeOpenText} className="mr-3 text-primary" /> Smart E-Letter Archive
           </h2>
           <p className="text-gray-400 mt-2 text-xs md:text-sm">Database arsip surat menyurat resmi dinamis dengan Upload Sinkronisasi Drive.</p>
         </div>
         <button onClick={() => setShowModal(true)} className="px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center">
-          <FontAwesomeIcon className="mr-2" icon="{faPlus}"/> Tulis Surat Baru
+          <FontAwesomeIcon icon={faPlus} className="mr-2" /> Tulis Surat Baru
         </button>
       </div>
 
@@ -258,10 +265,10 @@ export default function Surat() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl p-6 md:p-8 rounded-3xl shadow-2xl relative my-8">
             <button onClick={() => setShowModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white">
-              <FontAwesomeIcon icon="{faTimes}" size="lg"/>
+              <FontAwesomeIcon icon={faTimes} size="lg" />
             </button>
             <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6 flex items-center border-b border-white/10 pb-4">
-              <FontAwesomeIcon className="mr-3 text-primary" icon="{faRobot}"/> Form Dokumen Surat Resmi
+              <FontAwesomeIcon icon={faRobot} className="mr-3 text-primary" /> Form Dokumen Surat Resmi
             </h3>
             
             <form onSubmit={handleSave} className="space-y-5">
@@ -305,7 +312,7 @@ export default function Surat() {
                   <div className="relative">
                     <input type="file" onChange={handleFileChange} className="hidden" id="upload-lampiran" />
                     <label htmlFor="upload-lampiran" className="flex items-center justify-center p-3 px-4 rounded-xl border border-dashed bg-black/40 border-primary/50 text-primary hover:bg-primary/20 transition-all cursor-pointer font-bold text-xs" title="Unggah Dokumen Lampiran ke Google Drive">
-                       <FontAwesomeIcon : ? className="mr-2" faPaperclip faUpload} icon="{formData.file_lampiran"/> 
+                       <FontAwesomeIcon icon={formData.file_lampiran ? faPaperclip : faUpload} className="mr-2" /> 
                        {formData.file_lampiran ? 'Siap Upload' : 'Upload'}
                     </label>
                   </div>
@@ -320,11 +327,11 @@ export default function Surat() {
               {/* AI GENERATOR */}
               <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl flex flex-col md:flex-row gap-3 items-center">
                 <div className="w-full md:flex-1 relative">
-                  <FontAwesomeIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" icon="{faRobot}"/>
+                  <FontAwesomeIcon icon={faRobot} className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" />
                   <input type="text" value={formData.ai_prompt} onChange={e => setFormData({...formData, ai_prompt: e.target.value})} placeholder="Perintah AI: Buatkan draft undangan kunjungan rumah..." className="w-full p-3 pl-10 rounded-xl bg-dark/80 border border-white/10 text-white text-xs outline-none focus:border-primary" />
                 </div>
                 <button type="button" onClick={handleGenerateAI} disabled={isProcessing} className="w-full md:w-auto px-5 py-3 bg-primary text-black font-black uppercase text-xs rounded-xl shadow-lg hover:bg-yellow-500 whitespace-nowrap">
-                  {isProcessing ? <FontAwesomeIcon icon="{faSpinner}" spin/> : 'Susun Isi (AI)'}
+                  {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Susun Isi (AI)'}
                 </button>
               </div>
 
@@ -358,7 +365,7 @@ export default function Surat() {
               </div>
 
               <button type="submit" disabled={isProcessing} className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-xl uppercase tracking-widest shadow-[0_0_20px_rgba(22,163,74,0.3)] transition-all">
-                <FontAwesomeIcon className="mr-2" icon="{faSave}"/> Simpan Ke Arsip Database
+                <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Ke Arsip Database
               </button>
             </form>
           </div>
@@ -389,11 +396,15 @@ export default function Surat() {
                     <td className="px-6 py-4 text-gray-300 font-medium">
                       <div className="text-white font-bold">{letter.perihal.toUpperCase()}</div>
                       <div className="text-[10px] text-gray-500 mt-1 uppercase">KEPADA: {letter.kepada}</div>
-                      {letter.lampiran && letter.lampiran.includes('Tautan Dokumen') && <div className="text-[9px] text-green-400 mt-1 uppercase font-bold"><FontAwesomeIcon icon="{faPaperclip}"/> Memiliki File Lampiran Cloud</div>}
+                      {letter.lampiran && letter.lampiran.includes('Tautan Dokumen') && <div className="text-[9px] text-green-400 mt-1 uppercase font-bold"><FontAwesomeIcon icon={faPaperclip} /> Memiliki File Lampiran Cloud</div>}
                     </td>
                     <td className="px-6 py-4 flex justify-end items-center space-x-2">
-                      <button onClick={() => handlePrint(letter)} className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-600/30 rounded-lg text-xs font-bold transition-all uppercase"><FontAwesomeIcon className="mr-1 md:mr-2" icon="{faPrint}"/> <span className="hidden md:inline">Cetak PDF</span></button>
-                      <button onClick={() => handleDelete(letter.id)} className="px-3 py-2 bg-red-950/30 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FontAwesomeIcon icon="{faTrash}"/></button>
+                      <button onClick={() => handlePrint(letter)} className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-600/30 rounded-lg text-xs font-bold transition-all uppercase">
+                        <FontAwesomeIcon icon={faPrint} className="mr-1 md:mr-2" /> <span className="hidden md:inline">Cetak PDF</span>
+                      </button>
+                      <button onClick={() => handleDelete(letter.id)} className="px-3 py-2 bg-red-950/30 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
                     </td>
                   </tr>
                 ))
