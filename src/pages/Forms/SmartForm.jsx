@@ -6,7 +6,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faArrowLeft, faUpload, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
-{
   "TAPIN": {
     "BAKARANGAN": [
       "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN"
@@ -45,7 +44,7 @@ const DATA_WILAYAH = {
       "ANTASARI", "ANTASARI HILIR", "BADAUN", "BANUA HALAT KANAN", "BANUA HALAT KIRI", "BANUA HANYAR", "BANUA HANYAR HULU", "JINGAH BABARIS", "KAKARAN", "KERAMAT", "KUPANG", "LUMBU RAYA", "PERINTIS RAYA", "RANGDA MALINGKUNG", "RANTAU KANAN", "RANTAU KIWA"
     ]
   }
-}
+};
 
 export default function SmartForm({ userProfile }) {
   const { id: formId } = useParams();
@@ -195,7 +194,7 @@ export default function SmartForm({ userProfile }) {
               const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
               
               const isFile = field.type === 'file';
-              const isSelect = field.type === 'select' || isRegionField; // PAKSA SELECT!
+              const isSelect = field.type === 'select' || isRegionField; 
               const isCurrency = field.type === 'currency';
 
               return (
