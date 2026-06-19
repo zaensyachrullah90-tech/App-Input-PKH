@@ -19,12 +19,16 @@ export default function Settings() {
   const [newColumn, setNewColumn] = useState({ name: '', label: '', type: 'text', defaultValue: '', options: '' });
   const [activeSchema, setActiveSchema] = useState([]);
   
-  // STATE EDIT KOLOM (FULL CRUD)
   const [editingColName, setEditingColName] = useState(null);
   const [editColData, setEditColData] = useState({});
   
-  // STATE CONFIG ID FOLDER GOOGLE DRIVE
   const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem('global_drive_folder_id') || '');
+
+  // ==========================================
+  // FITUR BARU: EDIT METADATA FORM (JUDUL DLL)
+  // ==========================================
+  const [showEditFormModal, setShowEditFormModal] = useState(false);
+  const [editFormMeta, setEditFormMeta] = useState({ title: '', description: '', spreadsheet_link: '' });
 
   useEffect(() => { fetchForms(); }, []);
 
@@ -79,14 +83,10 @@ export default function Settings() {
       fetchForms();
     } catch (err) { 
       toast.error('Gagal menyimpan form ke database.', { id: toastId }); 
-      console.error(err);
     } 
     finally { setIsProcessing(false); }
   };
 
-  // ==========================================
-  // PERBAIKAN: HYBRID SMART FORM (DB LOKAL + GOOGLE JIKA ADA)
-  // ==========================================
   const handleCreateManual = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
@@ -103,20 +103,12 @@ export default function Settings() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
       });
-      
       const googleData = await res.json();
-      
       if (res.ok && googleData.spreadsheetId) {
-        finalLink = googleData.spreadsheetUrl; 
-        driveId = googleData.spreadsheetId;
+        finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
         toast.loading('Google Sheet Terhubung. Menyimpan Database...', { id: toastId });
-      } else {
-        throw new Error('Google Drive Bypass');
-      }
-    } catch (err) { 
-      // JIKA GOOGLE GAGAL/TIDAK DISETTING, TETAP BUAT FORM DI DATABASE LOKAL
-      toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId });
-    }
+      } else { throw new Error('Google Drive Bypass'); }
+    } catch (err) { toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId }); }
 
     executeFormCreation(schema, finalLink, driveId, toastId);
   };
@@ -152,13 +144,10 @@ export default function Settings() {
         }
         executeFormCreation(generatedSchema, newForm.link, sheetId, toastId);
       },
-      error: () => { toast.error('Gagal mengakses Link. Pastikan aksesnya "Anyone with the link".', { id: toastId }); setIsProcessing(false); }
+      error: () => { toast.error('Gagal mengakses Link.', { id: toastId }); setIsProcessing(false); }
     });
   };
 
-  // ==========================================
-  // PERBAIKAN: HYBRID EXTRACT FROM FILE
-  // ==========================================
   const handleExtractFromFile = (e) => {
     const file = e.target.files[0];
     if (!file || !newForm.title) return toast.error('Isi judul form terlebih dahulu!');
@@ -192,20 +181,14 @@ export default function Settings() {
           });
           const googleData = await res.json();
           if (res.ok && googleData.spreadsheetId) {
-            finalLink = googleData.spreadsheetUrl; 
-            driveId = googleData.spreadsheetId;
-          } else {
-             throw new Error('Google Bypass');
-          }
-        } catch (err) {
-          toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId });
-        }
+            finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
+          } else { throw new Error('Google Bypass'); }
+        } catch (err) { toast.loading('Mode Database Lokal...', { id: toastId }); }
         executeFormCreation(generatedSchema, finalLink, driveId, toastId);
       }
     });
   };
 
-  // TAMBAH KOLOM
   const handleAddColumn = async (e) => {
     e.preventDefault();
     if (!selectedFormId) return toast.error('Pilih form target!');
@@ -221,9 +204,8 @@ export default function Settings() {
     fetchForms();
   };
 
-  // HAPUS KOLOM (CRUD)
   const handleDeleteColumn = async (colName) => {
-    if (!window.confirm(`Hapus kolom "${colName}" dari database? Data yang masuk tidak akan terhapus, hanya disembunyikan.`)) return;
+    if (!window.confirm(`Hapus kolom "${colName}" dari database?`)) return;
     const updatedSchema = activeSchema.filter(col => col.name !== colName);
     setActiveSchema(updatedSchema);
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
@@ -231,7 +213,6 @@ export default function Settings() {
     fetchForms();
   };
 
-  // EDIT KOLOM (CRUD)
   const startEditColumn = (col) => {
     setEditingColName(col.name);
     setEditColData({ ...col, options: col.options ? col.options.join(', ') : '' });
@@ -265,7 +246,8 @@ export default function Settings() {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
           const prompt = `Rapikan JSON berikut: ${JSON.stringify(results.data)}. Kapitalisasi nama. NIK angka murni. Kembalikan HANYA array JSON murni tanpa markdown.`;
           const result = await model.generateContent(prompt);
-          const cleanedData = JSON.parse(result.response.text().replace(/```json|```/g, '').trim());
+          const cleanedData = JSON.parse(result.response.text().replace(/```json|
+```/g, '').trim());
           const insertPayload = cleanedData.map(row => ({ form_id: selectedFormId, data: row, kabupaten: row.kabupaten || 'Sistem' }));
           await supabase.from('form_responses').insert(insertPayload);
           toast.success('AI Auto-Fill berhasil!', { id: toastId });
@@ -274,15 +256,56 @@ export default function Settings() {
     });
   };
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }} />
-      <div className="border-b border-gray-800 pb-6"><h1 className="text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon icon={faCog} className="mr-3 text-primary" /> System Control Center</h1></div>
+  // EKSEKUSI UPDATE METADATA FORM
+  const handleUpdateFormMeta = async (e) => {
+    e.preventDefault();
+    const toastId = toast.loading('Menyimpan perubahan info form...');
+    try {
+      await supabase.from('forms').update({
+        title: editFormMeta.title,
+        description: editFormMeta.description,
+        spreadsheet_link: editFormMeta.spreadsheet_link
+      }).eq('id', selectedFormId);
+      toast.success('Info form berhasil diperbarui!', { id: toastId });
+      setShowEditFormModal(false);
+      fetchForms();
+    } catch (err) { toast.error('Gagal memperbarui info.', { id: toastId }); }
+  };
 
-      {/* KONFIGURASI GLOBAL GOOGLE DRIVE */}
+  return (
+    <div className="max-w-6xl mx-auto space-y-8 pb-12 p-3 md:p-0 animate-fade-in relative">
+      <Toaster position="top-right" toastOptions="{{" style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }}/>
+      <div className="border-b border-gray-800 pb-6"><h1 className="text-3xl font-extrabold text-white uppercase flex items-center"><FontAwesomeIcon icon="{faCog}" className="mr-3 text-primary"/> System Control Center</h1></div>
+
+      
+      {showEditFormModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
+            <button onClick={() => setShowEditFormModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon="{faTimes}" size="lg"/></button>
+            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6 flex items-center border-b border-white/10 pb-4"><FontAwesomeIcon icon="{faEdit}" className="mr-3 text-primary"/> Edit Info Formulir</h3>
+            <form onSubmit={handleUpdateFormMeta} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Judul Formulir</label>
+                <input type="text" value={editFormMeta.title} onChange={e => setEditFormMeta({...editFormMeta, title: e.target.value})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary font-semibold" required />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Deskripsi / Petunjuk</label>
+                <textarea value={editFormMeta.description} onChange={e => setEditFormMeta({...editFormMeta, description: e.target.value})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary h-24 resize-none" required />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Link Tautan Google Sheet (Opsional)</label>
+                <input type="text" value={editFormMeta.spreadsheet_link || ''} onChange={e => setEditFormMeta({...editFormMeta, spreadsheet_link: e.target.value})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary text-blue-400 font-mono" />
+              </div>
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-500 text-black font-black py-4 rounded-xl uppercase tracking-widest mt-4">Simpan Perubahan Info</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      
       <div className="bg-darker border border-gray-700 p-6 rounded-2xl shadow-xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-green-600"></div>
-        <label className="text-xs font-black text-green-400 uppercase tracking-widest block mb-2"><FontAwesomeIcon icon={faFolder} className="mr-2" /> Google Drive Destination Folder ID</label>
+        <label className="text-xs font-black text-green-400 uppercase tracking-widest block mb-2"><FontAwesomeIcon icon="{faFolder}" className="mr-2"/> Google Drive Destination Folder ID</label>
         <div className="flex flex-col sm:flex-row gap-3">
           <input type="text" placeholder="Masukkan ID Folder Cloud (Contoh: 1lPl2iqUKuxWi5vag23...)" value={driveFolderId} onChange={(e) => setDriveFolderId(e.target.value)} className="flex-1 p-3.5 rounded-xl bg-dark border border-gray-600 text-white font-mono text-xs focus:border-green-500 outline-none" />
           <button type="button" onClick={saveFolderId} className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold text-xs uppercase rounded-xl">Kunci Folder ID</button>
@@ -290,7 +313,7 @@ export default function Settings() {
       </div>
 
       <div className="bg-darker border border-gray-700 p-5 md:p-8 rounded-2xl relative">
-        <h2 className="text-xl font-bold mb-6 text-white uppercase flex items-center"><FontAwesomeIcon icon={faPlus} className="mr-3 text-primary" /> Auto Form Generator</h2>
+        <h2 className="text-xl font-bold mb-6 text-white uppercase flex items-center"><FontAwesomeIcon icon="{faPlus}" className="mr-3 text-primary"/> Auto Form Generator</h2>
         <div className="flex bg-dark/50 p-1.5 rounded-xl border border-gray-700 mb-4 overflow-x-auto">
           <button type="button" onClick={() => setCreationMode('manual')} className={`flex-1 py-3 px-4 rounded-lg font-bold text-xs uppercase whitespace-nowrap ${creationMode === 'manual' ? 'bg-primary text-darker' : 'text-gray-400'}`}>Manual Build</button>
           <button type="button" onClick={() => setCreationMode('file')} className={`flex-1 py-3 px-4 rounded-lg font-bold text-xs uppercase whitespace-nowrap ${creationMode === 'file' ? 'bg-primary text-darker' : 'text-gray-400'}`}>Extract Excel</button>
@@ -303,28 +326,37 @@ export default function Settings() {
           {creationMode === 'file' ? (
              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark/50 hover:bg-gray-800 transition-colors">
                <input type="file" accept=".csv" className="hidden" onChange={handleExtractFromFile} disabled={isProcessing || !newForm.title} />
-               <FontAwesomeIcon icon={faFileExcel} className="text-3xl text-primary mb-2" />
+               <FontAwesomeIcon icon="{faFileExcel}" className="text-3xl text-primary mb-2"/>
                <p className="text-sm font-bold text-gray-300">Unggah CSV untuk Scan Header & Buat Form</p>
              </label>
           ) : (
             <button type="submit" disabled={isProcessing} className="w-full bg-primary text-darker font-black py-4 rounded-xl uppercase tracking-widest flex justify-center items-center shadow-lg hover:bg-yellow-500">
-              {isProcessing ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Generate Form'}
+              {isProcessing ? <FontAwesomeIcon icon="{faSpinner}" spin/> : 'Generate Form'}
             </button>
           )}
         </form>
       </div>
 
-      <div className="bg-darker border border-gray-700 p-6 rounded-2xl flex items-center space-x-6 shadow-xl">
+      <div className="bg-darker border border-gray-700 p-6 rounded-2xl flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-6 shadow-xl">
         <label className="text-sm font-bold text-gray-400 uppercase tracking-widest min-w-max">Target Form Aktif:</label>
-        <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="w-full p-4 rounded-xl bg-dark border border-gray-600 text-white outline-none font-semibold">
-          {forms.map(f => <option key={f.id} value={f.id}>{f.title.toUpperCase()}</option>)}
-        </select>
+        <div className="flex w-full gap-2">
+          <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="w-full p-4 rounded-xl bg-dark border border-gray-600 text-white outline-none font-semibold">
+            {forms.map(f => <option key={f.id} value={f.id}>{f.title.toUpperCase()}</option>)}
+          </select>
+          <button onClick={() => {
+            const currentForm = forms.find(f => f.id === selectedFormId);
+            if(currentForm) {
+              setEditFormMeta({ title: currentForm.title, description: currentForm.description, spreadsheet_link: currentForm.spreadsheet_link });
+              setShowEditFormModal(true);
+            }
+          }} className="px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase whitespace-nowrap"><FontAwesomeIcon icon="{faEdit}" className="md:mr-2"/> <span className="hidden md:inline">Edit Info Form</span></button>
+        </div>
       </div>
 
-      {/* CRUD SCHEMA AREA */}
+      
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="bg-darker border border-gray-700 p-5 md:p-8 rounded-2xl h-fit">
-          <h2 className="text-lg font-bold mb-4 text-white uppercase border-b border-gray-800 pb-3 flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-3 text-primary" /> Suntik Kolom Baru</h2>
+          <h2 className="text-lg font-bold mb-4 text-white uppercase border-b border-gray-800 pb-3 flex items-center"><FontAwesomeIcon icon="{faDatabase}" className="mr-3 text-primary"/> Suntik Kolom Baru</h2>
           <form onSubmit={handleAddColumn} className="space-y-4">
             <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newColumn.name} onChange={(e) => setNewColumn({...newColumn, name: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-sm outline-none" />
             <input type="text" required placeholder="Label Tampilan UI" value={newColumn.label} onChange={(e) => setNewColumn({...newColumn, label: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-sm outline-none" />
@@ -338,9 +370,9 @@ export default function Settings() {
           </form>
         </div>
 
-        {/* FULL CRUD EDITOR KOLOM */}
+        
         <div className="bg-darker border border-gray-700 p-5 md:p-8 rounded-2xl lg:col-span-2">
-          <h2 className="text-lg font-bold mb-4 text-white uppercase border-b border-gray-800 pb-3 flex items-center"><FontAwesomeIcon icon={faPenNib} className="mr-3 text-primary" /> Manajemen Struktur Skema (CRUD)</h2>
+          <h2 className="text-lg font-bold mb-4 text-white uppercase border-b border-gray-800 pb-3 flex items-center"><FontAwesomeIcon icon="{faPenNib}" className="mr-3 text-primary"/> Manajemen Struktur Skema (CRUD)</h2>
           <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
             {activeSchema.map((col) => (
               <div key={col.name} className="flex flex-col p-4 bg-dark/40 border border-gray-800 rounded-xl hover:border-gray-700 transition-colors">
@@ -356,8 +388,8 @@ export default function Settings() {
                      </div>
                      {editColData.type === 'select' && <textarea value={editColData.options} onChange={(e) => setEditColData({...editColData, options: e.target.value})} className="w-full p-2 bg-dark border border-gray-600 text-white text-xs rounded h-16" placeholder="Opsi A, Opsi B" />}
                      <div className="flex justify-end space-x-2 pt-2">
-                       <button onClick={() => setEditingColName(null)} className="px-3 py-1 bg-gray-700 text-white text-xs rounded"><FontAwesomeIcon icon={faTimes} /> Batal</button>
-                       <button onClick={saveEditColumn} className="px-3 py-1 bg-primary text-black font-bold text-xs rounded"><FontAwesomeIcon icon={faSave} /> Simpan</button>
+                       <button onClick={() => setEditingColName(null)} className="px-3 py-1 bg-gray-700 text-white text-xs rounded"><FontAwesomeIcon icon="{faTimes}"/> Batal</button>
+                       <button onClick={saveEditColumn} className="px-3 py-1 bg-primary text-black font-bold text-xs rounded"><FontAwesomeIcon icon="{faSave}"/> Simpan</button>
                      </div>
                   </div>
                 ) : (
@@ -367,9 +399,9 @@ export default function Settings() {
                       <div className="text-[10px] font-mono text-gray-500 mt-1">type: {col.type} | field_id: {col.name}</div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <button onClick={() => handleToggleColumnLock(col.name)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center ${col.adminLocked ? 'bg-red-950/40 text-red-400 border border-red-900/50' : 'bg-green-950/40 text-green-400 border border-green-900/50'}`}><FontAwesomeIcon icon={col.adminLocked ? faLock : faLockOpen} className="mr-1" /> {col.adminLocked ? 'LOCK' : 'OPEN'}</button>
-                      <button onClick={() => startEditColumn(col)} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] hover:bg-blue-900 hover:text-white"><FontAwesomeIcon icon={faEdit}/></button>
-                      <button onClick={() => handleDeleteColumn(col.name)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-[10px] hover:bg-red-900 hover:text-red-400"><FontAwesomeIcon icon={faTrash}/></button>
+                      <button onClick={() => handleToggleColumnLock(col.name)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center ${col.adminLocked ? 'bg-red-950/40 text-red-400 border border-red-900/50' : 'bg-green-950/40 text-green-400 border border-green-900/50'}`}><FontAwesomeIcon icon="{col.adminLocked" ? faLock : faLockOpen} className="mr-1"/> {col.adminLocked ? 'LOCK' : 'OPEN'}</button>
+                      <button onClick={() => startEditColumn(col)} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] hover:bg-blue-900 hover:text-white"><FontAwesomeIcon icon="{faEdit}"/></button>
+                      <button onClick={() => handleDeleteColumn(col.name)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-[10px] hover:bg-red-900 hover:text-red-400"><FontAwesomeIcon icon="{faTrash}"/></button>
                     </div>
                   </div>
                 )}
@@ -380,16 +412,16 @@ export default function Settings() {
       </div>
 
       <div className="bg-darker border border-gray-700 p-8 rounded-2xl relative shadow-xl">
-        <h2 className="text-xl font-black mb-2 text-white uppercase flex items-center"><FontAwesomeIcon icon={faRobot} className="mr-3 text-primary" /> Gemini AI Auto-Fill Data</h2>
+        <h2 className="text-xl font-black mb-2 text-white uppercase flex items-center"><FontAwesomeIcon icon="{faRobot}" className="mr-3 text-primary"/> Gemini AI Auto-Fill Data</h2>
         <p className="text-gray-400 mb-6 text-sm">Upload file data mentah. AI akan menyelaraskan data dengan form aktif secara cerdas.</p>
         <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 rounded-xl cursor-pointer bg-dark hover:bg-gray-800 transition-colors">
           <input type="file" accept=".csv" className="hidden" onChange={handleGeminiUpload} />
-          <FontAwesomeIcon icon={faUpload} className="text-3xl text-primary mb-3" />
+          <FontAwesomeIcon icon="{faUpload}" className="text-3xl text-primary mb-3"/>
         </label>
       </div>
 
       <div className="bg-darker border border-gray-700 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="p-6 bg-dark border-b border-gray-700 flex items-center"><FontAwesomeIcon icon={faCloud} className="text-xl text-primary mr-4" /><h3 className="font-bold text-white uppercase text-sm">Daftar Link Distribusi & Spreadsheet</h3></div>
+        <div className="p-6 bg-dark border-b border-gray-700 flex items-center"><FontAwesomeIcon icon="{faCloud}" className="text-xl text-primary mr-4"/><h3 className="font-bold text-white uppercase text-sm">Daftar Link Distribusi & Spreadsheet</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-dark/50 text-gray-400 text-xs uppercase border-b border-gray-800">
@@ -405,8 +437,8 @@ export default function Settings() {
                     <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20 hover:bg-green-900/40' : 'text-red-400 border-red-500/20 hover:bg-red-900/40'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
                     <td className="p-5 text-center"><button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link disalin!'); }} className="px-4 py-2 bg-primary hover:bg-yellow-500 text-darker font-bold rounded-lg text-xs uppercase">Copy Link</button></td>
                     <td className="p-5 flex justify-end space-x-2">
-                      {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" title="Buka Spreadsheet Google Drive" className="p-2.5 bg-gray-800 text-primary hover:bg-gray-700 rounded-lg"><FontAwesomeIcon icon={faEye} /></a>}
-                      <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FontAwesomeIcon icon={faTrash} /></button>
+                      {f.spreadsheet_link && <a href={f.spreadsheet_link} target="_blank" rel="noreferrer" title="Buka Spreadsheet Google Drive" className="p-2.5 bg-gray-800 text-primary hover:bg-gray-700 rounded-lg"><FontAwesomeIcon icon="{faEye}"/></a>}
+                      <button type="button" onClick={() => handleDeleteForm(f.id)} className="p-2.5 bg-red-950/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FontAwesomeIcon icon="{faTrash}"/></button>
                     </td>
                   </tr>
                 )
