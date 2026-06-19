@@ -5,7 +5,6 @@ import { faDatabase, faFilter, faFileDownload, faFileExcel, faPrint, faTimes, fa
 import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
- {
   "TAPIN": {
     "BAKARANGAN": [
       "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN"
@@ -44,7 +43,7 @@ const DATA_WILAYAH = {
       "ANTASARI", "ANTASARI HILIR", "BADAUN", "BANUA HALAT KANAN", "BANUA HALAT KIRI", "BANUA HANYAR", "BANUA HANYAR HULU", "JINGAH BABARIS", "KAKARAN", "KERAMAT", "KUPANG", "LUMBU RAYA", "PERINTIS RAYA", "RANGDA MALINGKUNG", "RANTAU KANAN", "RANTAU KIWA"
     ]
   }
-}
+};
 
 export default function Responses() {
   const [responses, setResponses] = useState([]);
@@ -280,8 +279,6 @@ export default function Responses() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
-      
-      {/* ERROR 1 DIPERBAIKI DI SINI: TOASTER SYNTAX ERROR FIX */}
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
       {showExportModal && (
