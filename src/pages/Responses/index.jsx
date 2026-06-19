@@ -107,6 +107,7 @@ export default function Responses() {
   };
 
   const handleAdminDelete = async (id) => {
+    // Verifikator Tetap Terkunci Untuk Hapus Data!
     if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
     if (!window.confirm('Hapus arsip ini secara permanen?')) return;
     try {
@@ -137,9 +138,11 @@ export default function Responses() {
     return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
   };
 
+  // =========================================================
+  // PEMBARUAN: VERIFIKATOR KINI BISA MENAMBAH HEADER BEBAS
+  // =========================================================
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
-    if (isVerifikator) return toast.error('Hanya Admin yang bisa membuat Header baru.');
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
     const toastId = toast.loading('Menyuntikkan Header Verifikasi ke Database...');
     try {
@@ -159,9 +162,6 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
-  // ==========================================
-  // FITUR BARU: AUTO UPLOAD BERKAS VERIFIKATOR
-  // ==========================================
   const handleVerifyFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -183,6 +183,7 @@ export default function Responses() {
 
     let newFormData = { ...verifyEditData, [field.name]: value };
 
+    // Cascade Khusus Verifikator
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
         if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
@@ -206,7 +207,6 @@ export default function Responses() {
     let finalData = { ...verifyEditData };
 
     try {
-      // PROSES SINKRONISASI GOOGLE DRIVE UNTUK BERKAS VERIFIKATOR
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
           toast.loading(`Mengunggah berkas ${key.toUpperCase()} ke Pusat Cloud...`, { id: toastId });
@@ -347,30 +347,24 @@ export default function Responses() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               
-              {!isVerifikator ? (
-                <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
-                  <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
-                  <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom verifikasi yang <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span>.</p>
-                  <form onSubmit={handleAddVerifyColumn} className="space-y-3">
-                    <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                    <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                    <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
-                      <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
-                      <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
-                      {/* OPSI UPLOAD BERKAS DI RUANG VERIFIKATOR DIBUKA UNTUK ADMIN */}
-                      <option value="file">Upload Berkas (Drive)</option>
-                    </select>
-                    {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
-                    <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
-                  </form>
-                </div>
-              ) : (
-                <div className="lg:col-span-1 bg-blue-900/10 p-5 rounded-2xl border border-blue-500/20 h-fit">
-                  <h4 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> Mode Verifikator</h4>
-                  <p className="text-[11px] text-gray-400 leading-relaxed">Anda sedang berada di ruang verifikasi. Silakan isi kolom dan unggah berkas bukti fisik (jika tersedia) untuk menindaklanjuti data permohonan ini.</p>
-                </div>
-              )}
+              {/* KOLOM 1: FORM TAMBAH HEADER KHUSUS (TERBUKA UNTUK ADMIN & VERIFIKATOR) */}
+              <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
+                <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
+                <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom verifikasi yang <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span>.</p>
+                <form onSubmit={handleAddVerifyColumn} className="space-y-3">
+                  <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                  <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                  <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
+                    <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
+                    <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                    <option value="file">Upload Berkas (Drive)</option>
+                  </select>
+                  {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
+                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
+                </form>
+              </div>
 
+              {/* KOLOM 2: FORM PENGISIAN DATA */}
               <div className="lg:col-span-2">
                  <form onSubmit={handleSaveVerify} className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -389,7 +383,6 @@ export default function Responses() {
                               {field.adminLocked && !isSystemGenerated && <span className="text-[8px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-black">KOLOM VERIFIKASI</span>}
                             </label>
 
-                            {/* LOGIKA KHUSUS RENDER UPLOAD BERKAS UNTUK VERIFIKATOR */}
                             {isFile ? (
                               <div className="relative">
                                 <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
