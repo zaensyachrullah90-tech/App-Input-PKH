@@ -38,9 +38,8 @@ export default function PublicForm() {
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
-  const globalFolderId = localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
+  const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
-  // SINKRONISASI TAB DENGAN URL MENGGUNAKAN PUSH STATE
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('tab') === 'results') setActiveTab('results');
@@ -122,21 +121,15 @@ export default function PublicForm() {
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
   };
 
-  // =========================================================================
-  // PENYEMPURNAAN MUTLAK: SMART IMAGE COMPRESSOR & BASE64 CONVERTER
-  // MENCEGAH TIMEOUT VERCEL SECARA INSTAN!
-  // =========================================================================
   const compressImage = (file) => {
     return new Promise((resolve, reject) => {
       if (!file.type.startsWith('image/')) {
-        // Jika PDF atau file lain, tidak dikompres, langsung base64
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.onerror = error => reject(error);
         return;
       }
-      // Jika Gambar/Foto HP (Kompresi 60% via Canvas)
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = (event) => {
@@ -146,7 +139,6 @@ export default function PublicForm() {
           const canvas = document.createElement('canvas');
           const MAX_WIDTH = 1200; const MAX_HEIGHT = 1200;
           let width = img.width; let height = img.height;
-
           if (width > height) {
             if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
           } else {
@@ -155,8 +147,7 @@ export default function PublicForm() {
           canvas.width = width; canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6); // Kompresi JPEG 60%
-          resolve(dataUrl.split(',')[1]);
+          resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
         };
       };
       reader.onerror = error => reject(error);
@@ -182,20 +173,19 @@ export default function PublicForm() {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
-            const base64String = await compressImage(fileObject); // PANGGIL KOMPRESOR CERDAS
+            const base64String = await compressImage(fileObject);
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
             if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error('Vercel Timeout'); }
+            else { throw new Error('Timeout'); }
           } catch(err) { finalData[key] = `GAGAL UPLOAD (TIMEOUT)`; }
         }
       });
       await Promise.all(uploadPromises);
 
-      // REALTIME UPDATE TANPA LOADING ULANG
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
         fetchResponses();
@@ -210,7 +200,6 @@ export default function PublicForm() {
         }
       }
 
-      // BYPASS SHEET SINKRONISASI
       if (formConfig?.spreadsheet_id && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -335,7 +324,7 @@ export default function PublicForm() {
                           <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={finalLockedStatus} className="hidden" id={`file-${field.name}`}/>
                           <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${finalLockedStatus ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
-                            <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih Berkas Lampiran...'}</span>
+                            <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
                           </label>
                         </div>
                       ) : isSelect ? (
@@ -348,17 +337,21 @@ export default function PublicForm() {
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {(() => {
                                 let selectOptions = field.options || [];
-                                if (colNameLower.includes('kabupaten')) selectOptions = Object.keys(DATA_WILAYAH);
-                                else if (colNameLower.includes('kecamatan')) {
+                                
+                                if (colNameLower.includes('kabupaten')) {
+                                  selectOptions = Object.keys(DATA_WILAYAH);
+                                } else if (colNameLower.includes('kecamatan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
-                                  if (kabKey && formData[kabKey] && DATA_WILAYAH[formData[kabKey]]) selectOptions = Object.keys(DATA_WILAYAH[formData[kabKey]]);
+                                  const kabVal = kabKey ? formData[kabKey] : null;
+                                  if (kabVal && DATA_WILAYAH[kabVal]) selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
                                 } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
                                   const kecKey = Object.keys(formData).find(k => k.toLowerCase().includes('kecamatan'));
-                                  if (kabKey && kecKey && formData[kabKey] && formData[kecKey] && DATA_WILAYAH[formData[kabKey]] && DATA_WILAYAH[formData[kabKey]][formData[kecKey]]) {
-                                    selectOptions = DATA_WILAYAH[formData[kabKey]][formData[kecKey]];
-                                  }
+                                  const kabVal = kabKey ? formData[kabKey] : null;
+                                  const kecVal = kecKey ? formData[kecKey] : null;
+                                  if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
                                 }
+
                                 return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                               })()}
                            </select>
@@ -366,7 +359,7 @@ export default function PublicForm() {
                         </div>
                       ) : (
                         <div className="relative flex items-center">
-                          {isCurrency && <span className="absolute left-4 font-bold text-xs text-primary">Rp.</span>}
+                          {isCurrency && <span className="absolute left-4 font-bold text-xs md:text-sm text-primary">Rp.</span>}
                           <input
                             type={isCurrency ? 'text' : field.type || 'text'}
                             name={field.name}
@@ -396,7 +389,7 @@ export default function PublicForm() {
               responses.map((res) => (
                 <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
                   <div>
-                    <div className="font-bold text-white uppercase text-xs md:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
+                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
                     <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
                   </div>
                   
@@ -412,7 +405,7 @@ export default function PublicForm() {
                     ) : (
                       <>
                         <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed">
-                          <FontAwesomeIcon icon={faEdit} className="md:mr-2 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
+                          <FontAwesomeIcon icon={faEdit} className="mr-2 md:mr-0 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
                         </button>
                         <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
                           <FontAwesomeIcon icon={faTrash} />
@@ -426,12 +419,10 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* MODAL LACAK VERIFIKASI DILENGKAPI TOMBOL KEMBALI DI FOOTER */}
-        {/* ========================================================================= */}
+        {/* MODAL RESPONSIF DENGAN TOMBOL KEMBALI */}
         {selectedDetail && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden">
+            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-auto max-h-[90vh] animate-fade-in-up">
               
               <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
                 <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
@@ -480,9 +471,8 @@ export default function PublicForm() {
                 </div>
               </div>
 
-              {/* FOOTER TOMBOL KEMBALI */}
               <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl flex justify-end">
-                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition-all">
+                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition-all shadow-lg">
                   <FontAwesomeIcon icon={faArrowLeft} className="mr-2"/> Tutup & Kembali
                 </button>
               </div>
