@@ -6,42 +6,18 @@ import toast, { Toaster } from 'react-hot-toast';
 
 const DATA_WILAYAH = {
   "TAPIN": {
-    "BAKARANGAN": [
-      "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN"
-    ],
-    "BINUANG": [
-      "A. YANI PURA", "BINUANG", "GUNUNG BATU", "KARANGAN PUTIH", "MEKARSARI", "PADANG SARI", "PUALAM SARI", "PULAU PINANG", "PULAU PINANG UTARA", "RAYA BELANTI", "TUNGKAP"
-    ],
-    "BUNGUR": [
-      "BANUA PADANG", "BANUA PADANG HILIR", "BUNGUR", "BUNGUR BARU", "HANGUI", "KALUMPANG", "LINUH", "PARING GULING", "PURUT", "RANTAU BUJUR", "SHABAH", "TIMBUNG"
-    ],
-    "CANDI LARAS SELATAN": [
-      "BARINGIN A", "BARINGIN B", "BAULIN", "CANDI LARAS", "MARAMPIAU", "MARAMPIAU HILIR", "MARGASARI HULU", "PABAUNGAN HILIR", "PABAUNGAN HULU", "PABAUNGAN PANTAI", "SUNGAI RUTAS", "SUNGAI RUTAS HULU"
-    ],
-    "CANDI LARAS UTARA": [
-      "BATALAS", "BUAS-BUAS", "BUAS-BUAS HILIR", "KALADAN", "MARGASARI HILIR", "PARIOK", "RAWANA", "RAWANA HULU", "SAWAJA", "SUNGAI PUTING", "SUNGAI SALAI", "SUNGAI SALAI HILIR", "TELUK HAUR"
-    ],
-    "HATUNGUN": [
-      "ASAM RANDAH", "BAGAK", "BATU HAPU", "BURAKAI", "HATUNGUN", "KAMBANG KUNING", "MATANG BATAS", "TARUNGIN"
-    ],
-    "LOKPAIKAT": [
-      "AYUNAN PAPAN", "BATARATAT", "BINDERANG", "BITAHAN", "BITAHAN BARU", "BUDI MULYA", "LOKPAIKAT", "PARANDAKAN", "PUNCAK HARAPAN"
-    ],
-    "PIANI": [
-      "BALAWAIAN", "BARAMBAN", "BATU AMPAR", "BATUNG", "BUNIIN JAYA", "HARAKIT", "MIAWA", "PIPITAK JAYA"
-    ],
-    "SALAM BABARIS": [
-      "KAMBANG HABANG BARU", "KAMBANG HABANG LAMA", "PANTAI CABE", "SALAM BABARIS", "SUATO BARU", "SUATO LAMA"
-    ],
-    "TAPIN SELATAN": [
-      "CEMPAKA", "HARAPAN MASA", "HATIWIN", "LAWAHAN", "RUMINTIN", "SAWANG", "SUATO TATAKAN", "TAMBARANGAN", "TANDUI", "TATAKAN", "TIMBAAN"
-    ],
-    "TAPIN TENGAH": [
-      "ANDHIKA", "BATANG LANTIK", "HIYUNG", "KEPAYANG", "LABUNG", "MANDURIAN", "MANDURIAN HILIR", "PANDAHAN", "PANDULANGAN", "PAPAGAN MAKMUR", "PEMATANG KARANGAN", "PEMATANG KARANGAN HILIR", "PEMATANG KARANGAN HULU", "SERAWI", "SUKA RAMAI", "SUNGAI BAHALANG", "TIRIK"
-    ],
-    "TAPIN UTARA": [
-      "ANTASARI", "ANTASARI HILIR", "BADAUN", "BANUA HALAT KANAN", "BANUA HALAT KIRI", "BANUA HANYAR", "BANUA HANYAR HULU", "JINGAH BABARIS", "KAKARAN", "KERAMAT", "KUPANG", "LUMBU RAYA", "PERINTIS RAYA", "RANGDA MALINGKUNG", "RANTAU KANAN", "RANTAU KIWA"
-    ]
+    "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
+    "BINUANG": [ "A. YANI PURA", "BINUANG", "GUNUNG BATU", "KARANGAN PUTIH", "MEKARSARI", "PADANG SARI", "PUALAM SARI", "PULAU PINANG", "PULAU PINANG UTARA", "RAYA BELANTI", "TUNGKAP" ],
+    "BUNGUR": [ "BANUA PADANG", "BANUA PADANG HILIR", "BUNGUR", "BUNGUR BARU", "HANGUI", "KALUMPANG", "LINUH", "PARING GULING", "PURUT", "RANTAU BUJUR", "SHABAH", "TIMBUNG" ],
+    "CANDI LARAS SELATAN": [ "BARINGIN A", "BARINGIN B", "BAULIN", "CANDI LARAS", "MARAMPIAU", "MARAMPIAU HILIR", "MARGASARI HULU", "PABAUNGAN HILIR", "PABAUNGAN HULU", "PABAUNGAN PANTAI", "SUNGAI RUTAS", "SUNGAI RUTAS HULU" ],
+    "CANDI LARAS UTARA": [ "BATALAS", "BUAS-BUAS", "BUAS-BUAS HILIR", "KALADAN", "MARGASARI HILIR", "PARIOK", "RAWANA", "RAWANA HULU", "SAWAJA", "SUNGAI PUTING", "SUNGAI SALAI", "SUNGAI SALAI HILIR", "TELUK HAUR" ],
+    "HATUNGUN": [ "ASAM RANDAH", "BAGAK", "BATU HAPU", "BURAKAI", "HATUNGUN", "KAMBANG KUNING", "MATANG BATAS", "TARUNGIN" ],
+    "LOKPAIKAT": [ "AYUNAN PAPAN", "BATARATAT", "BINDERANG", "BITAHAN", "BITAHAN BARU", "BUDI MULYA", "LOKPAIKAT", "PARANDAKAN", "PUNCAK HARAPAN" ],
+    "PIANI": [ "BALAWAIAN", "BARAMBAN", "BATU AMPAR", "BATUNG", "BUNIIN JAYA", "HARAKIT", "MIAWA", "PIPITAK JAYA" ],
+    "SALAM BABARIS": [ "KAMBANG HABANG BARU", "KAMBANG HABANG LAMA", "PANTAI CABE", "SALAM BABARIS", "SUATO BARU", "SUATO LAMA" ],
+    "TAPIN SELATAN": [ "CEMPAKA", "HARAPAN MASA", "HATIWIN", "LAWAHAN", "RUMINTIN", "SAWANG", "SUATO TATAKAN", "TAMBARANGAN", "TANDUI", "TATAKAN", "TIMBAAN" ],
+    "TAPIN TENGAH": [ "ANDHIKA", "BATANG LANTIK", "HIYUNG", "KEPAYANG", "LABUNG", "MANDURIAN", "MANDURIAN HILIR", "PANDAHAN", "PANDULANGAN", "PAPAGAN MAKMUR", "PEMATANG KARANGAN", "PEMATANG KARANGAN HILIR", "PEMATANG KARANGAN HULU", "SERAWI", "SUKA RAMAI", "SUNGAI BAHALANG", "TIRIK" ],
+    "TAPIN UTARA": [ "ANTASARI", "ANTASARI HILIR", "BADAUN", "BANUA HALAT KANAN", "BANUA HALAT KIRI", "BANUA HANYAR", "BANUA HANYAR HULU", "JINGAH BABARIS", "KAKARAN", "KERAMAT", "KUPANG", "LUMBU RAYA", "PERINTIS RAYA", "RANGDA MALINGKUNG", "RANTAU KANAN", "RANTAU KIWA" ]
   }
 };
 
@@ -107,7 +83,6 @@ export default function Responses() {
   };
 
   const handleAdminDelete = async (id) => {
-    // Verifikator Tetap Terkunci Untuk Hapus Data!
     if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
     if (!window.confirm('Hapus arsip ini secara permanen?')) return;
     try {
@@ -138,9 +113,6 @@ export default function Responses() {
     return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
   };
 
-  // =========================================================
-  // PEMBARUAN: VERIFIKATOR KINI BISA MENAMBAH HEADER BEBAS
-  // =========================================================
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
@@ -183,18 +155,13 @@ export default function Responses() {
 
     let newFormData = { ...verifyEditData, [field.name]: value };
 
-    // Cascade Khusus Verifikator
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     }
 
@@ -207,24 +174,30 @@ export default function Responses() {
     let finalData = { ...verifyEditData };
 
     try {
+      // PROSES SINKRONISASI DRIVE UNTUK VERIFIKATOR DENGAN ERROR HANDLING YANG JELAS
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
-          toast.loading(`Mengunggah berkas ${key.toUpperCase()} ke Pusat Cloud...`, { id: toastId });
+          toast.loading(`Mengunggah berkas verifikasi...`, { id: toastId });
           try {
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', ...finalData[key], folderId: globalFolderId })
             });
             const driveData = await res.json();
+            if(!res.ok) throw new Error(driveData.error);
             finalData[key] = driveData.link || 'Gagal Upload';
-          } catch(e) { finalData[key] = 'Tersimpan Lokal'; }
+          } catch(e) { 
+            console.error("Upload Error:", e);
+            toast.error("Gagal koneksi ke Google Drive", { id: toastId, duration: 3000 });
+            finalData[key] = 'Gagal (Lokal)'; 
+          }
         }
       }
 
       toast.loading('Menyimpan Hasil Tindak Lanjut ke Database...', { id: toastId });
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
       
-      toast.success('Hasil Verifikasi Berhasil Disimpan & Disinkronisasi!', { id: toastId });
+      toast.success('Hasil Verifikasi Berhasil Disimpan!', { id: toastId });
       setShowVerifyModal(false);
       fetchResponses(selectedFormId);
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
@@ -311,7 +284,7 @@ export default function Responses() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
+    <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
       {showExportModal && (
@@ -334,40 +307,47 @@ export default function Responses() {
         </div>
       )}
 
-      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) */}
+      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) DIBUAT SANGAT RESPONSIF */}
       {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto py-10">
-          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl p-6 md:p-8 rounded-3xl shadow-2xl relative my-auto animate-fade-in-up">
-            <button onClick={() => setShowVerifyModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4 overflow-hidden py-10">
+          <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-2xl relative my-auto animate-fade-in-up max-h-[90vh] flex flex-col">
+            <button onClick={() => setShowVerifyModal(false)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-10"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             
-            <div className="border-b border-white/10 pb-4 mb-6">
-              <h3 className="text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
-              <p className="text-gray-400 text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
+            <div className="border-b border-white/10 pb-3 md:pb-4 mb-4 md:mb-6 pr-8 flex-none">
+              <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2 md:mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
+              <p className="text-gray-400 text-[10px] md:text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* AREA KERJA SCROLLABLE DI HP */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-y-auto pr-1 md:pr-2 custom-scrollbar pb-4">
               
-              {/* KOLOM 1: FORM TAMBAH HEADER KHUSUS (TERBUKA UNTUK ADMIN & VERIFIKATOR) */}
-              <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
-                <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
-                <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom verifikasi yang <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span>.</p>
-                <form onSubmit={handleAddVerifyColumn} className="space-y-3">
-                  <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                  <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                  <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
-                    <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
-                    <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
-                    <option value="file">Upload Berkas (Drive)</option>
-                  </select>
-                  {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
-                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
-                </form>
+              {/* KOLOM KIRI: INFO ROLE & SUNTIK HEADER */}
+              <div className="lg:col-span-1 space-y-4">
+                <div className="bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20">
+                  <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
+                  <p className="text-[10px] md:text-[11px] text-gray-400 leading-relaxed">Silakan isi kolom di samping dan unggah berkas bukti fisik (jika tersedia) untuk menindaklanjuti data permohonan ini.</p>
+                </div>
+                
+                <div className="bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5">
+                  <h4 className="text-[10px] md:text-xs font-bold text-primary uppercase tracking-widest mb-3 md:mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
+                  <form onSubmit={handleAddVerifyColumn} className="space-y-3">
+                    <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
+                    <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary" />
+                    <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-[10px] md:text-xs outline-none focus:border-primary">
+                      <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
+                      <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                      <option value="file">Upload Berkas (Drive)</option>
+                    </select>
+                    {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-[10px] md:text-xs outline-none h-16" />}
+                    <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[9px] md:text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
+                  </form>
+                </div>
               </div>
 
-              {/* KOLOM 2: FORM PENGISIAN DATA */}
+              {/* KOLOM KANAN: FORM PENGISIAN VERIFIKATOR */}
               <div className="lg:col-span-2">
-                 <form onSubmit={handleSaveVerify} className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <form onSubmit={handleSaveVerify} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                       {activeSchema.map((field) => {
                         const colNameLower = field.name.toLowerCase();
                         const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
@@ -378,17 +358,17 @@ export default function Responses() {
 
                         return (
                           <div key={field.name} className={`flex flex-col relative ${field.adminLocked ? 'bg-primary/5 p-3 rounded-xl border border-primary/20' : ''}`}>
-                            <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
+                            <label className="text-[9px] md:text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
                               <span>{field.label}</span>
-                              {field.adminLocked && !isSystemGenerated && <span className="text-[8px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-black">KOLOM VERIFIKASI</span>}
+                              {field.adminLocked && !isSystemGenerated && <span className="text-[7px] md:text-[8px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-black">KOLOM VERIFIKASI</span>}
                             </label>
 
                             {isFile ? (
                               <div className="relative">
                                 <input type="file" onChange={(e) => handleVerifyFileChange(e, field.name)} disabled={isSystemGenerated} className="hidden" id={`vfile-${field.name}`}/>
-                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                                <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-3 rounded-xl border border-dashed transition-all duration-300 cursor-pointer text-[10px] md:text-xs ${isSystemGenerated ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-2 text-primary" />
-                                  <span className="truncate max-w-[200px]">
+                                  <span className="truncate max-w-[150px] md:max-w-[200px]">
                                     {verifyEditData[field.name]?.fileName || 
                                     (typeof verifyEditData[field.name] === 'string' && verifyEditData[field.name].startsWith('http') ? 'Berkas Tersimpan (Klik Ganti)' : 'Pilih Lampiran Berkas...')}
                                   </span>
@@ -396,7 +376,7 @@ export default function Responses() {
                               </div>
                             ) : isSelect ? (
                               <div className="relative">
-                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
+                                 <select name={field.name} value={verifyEditData[field.name] || ''} onChange={(e) => handleVerifyInputChange(e, field)} disabled={isSystemGenerated} className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs appearance-none ${isSystemGenerated ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}>
                                     <option value="" disabled className="bg-gray-900">-- Pilih --</option>
                                     {(() => {
                                        let selectOptions = field.options || [];
@@ -422,18 +402,18 @@ export default function Responses() {
                                        return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                                     })()}
                                  </select>
-                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
+                                 <FontAwesomeIcon icon={faChevronDown} className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] pointer-events-none" />
                               </div>
                             ) : (
                               <div className="relative flex items-center">
-                                {isCurrency && <span className="absolute left-3 font-bold text-xs text-primary">Rp.</span>}
+                                {isCurrency && <span className="absolute left-3 font-bold text-[10px] md:text-xs text-primary">Rp.</span>}
                                 <input
                                   type={isCurrency ? 'text' : field.type || 'text'}
                                   name={field.name}
                                   value={isSystemGenerated ? (verifyEditData[field.name] || '-') : (verifyEditData[field.name] || '')}
                                   onChange={(e) => handleVerifyInputChange(e, field)}
                                   disabled={isSystemGenerated}
-                                  className={`w-full p-3 rounded-xl border outline-none text-xs transition-all ${isCurrency ? 'pl-10' : 'pl-3'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
+                                  className={`w-full p-3 rounded-xl border outline-none text-[10px] md:text-xs transition-all ${isCurrency ? 'pl-8 md:pl-10' : 'pl-3'} ${isSystemGenerated ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary'}`}
                                 />
                               </div>
                             )}
@@ -441,8 +421,8 @@ export default function Responses() {
                         );
                       })}
                     </div>
-                    <div className="sticky bottom-0 bg-[#0f172a] pt-4 mt-6 border-t border-white/10">
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-xs">
+                    <div className="mt-4 md:mt-6 border-t border-white/10 pt-4">
+                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3 md:py-4 rounded-xl md:rounded-2xl uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all text-[10px] md:text-xs">
                         <FontAwesomeIcon icon={faSave} className="mr-2" /> Simpan Hasil Tindak Lanjut
                       </button>
                     </div>
@@ -454,32 +434,32 @@ export default function Responses() {
       )}
 
       {/* HEADER MONITORING PANEL */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
-        <div><h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-3 text-primary" /> Executive Data Table</h2></div>
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="flex items-center space-x-3 bg-darker border border-gray-700 p-1.5 rounded-xl w-full sm:w-auto justify-between sm:justify-start">
-            <FontAwesomeIcon icon={faFilter} className="text-gray-500 ml-3" />
-            <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="p-1.5 bg-transparent text-white focus:outline-none text-xs md:text-sm font-bold w-full sm:w-48">
+      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 md:pb-6 gap-3 md:gap-4">
+        <div><h2 className="text-xl md:text-2xl lg:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-2 md:mr-3 text-primary" /> Executive Data Table</h2></div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3 w-full md:w-auto">
+          <div className="flex items-center space-x-2 md:space-x-3 bg-darker border border-gray-700 p-1.5 rounded-xl w-full sm:w-auto justify-between sm:justify-start">
+            <FontAwesomeIcon icon={faFilter} className="text-gray-500 ml-2 md:ml-3" />
+            <select value={selectedFormId} onChange={(e) => setSelectedFormId(e.target.value)} className="p-1.5 md:p-2 bg-transparent text-white focus:outline-none text-[10px] md:text-xs lg:text-sm font-bold w-full sm:w-40 md:w-48">
               {forms.map(f => <option key={f.id} value={f.id} className="bg-[#0f172a]">{f.title.toUpperCase()}</option>)}
             </select>
           </div>
-          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all"><FontAwesomeIcon icon={faPrint} className="mr-2" /> Cetak Lampiran</button>
+          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-4 md:px-5 py-3 md:py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all flex justify-center items-center"><FontAwesomeIcon icon={faPrint} className="mr-2" /> Cetak Lampiran</button>
         </div>
       </div>
       
       {/* TABEL DATA HASIL INPUT */}
-      <div className="bg-darker rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-xs md:text-sm whitespace-nowrap">
+      <div className="bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="min-w-full text-left text-[10px] md:text-xs lg:text-sm whitespace-nowrap">
             <thead className="uppercase tracking-wider border-b-2 border-gray-800 bg-black/50">
               <tr>
-                {activeSchema.map(col => <th key={col.name} className="px-6 py-5 font-bold text-gray-300">{col.label}</th>)}
-                <th className="px-6 py-5 font-black text-gray-400 text-right">Otoritas Aksi</th>
+                {activeSchema.map(col => <th key={col.name} className="px-4 md:px-6 py-4 md:py-5 font-bold text-gray-300">{col.label}</th>)}
+                <th className="px-4 md:px-6 py-4 md:py-5 font-black text-gray-400 text-right sticky right-0 bg-darker z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">Otoritas Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {loading ? (
-                <tr><td colSpan={activeSchema.length + 1} className="text-center py-10 text-gray-500">Memetakan data...</td></tr>
+                <tr><td colSpan={activeSchema.length + 1} className="text-center py-8 md:py-10 text-gray-500">Memetakan data...</td></tr>
               ) : responses.length > 0 ? (
                 responses.map((res, index) => (
                   <tr key={res.id} className={`${index % 2 === 0 ? 'bg-dark/20' : 'bg-darker'} hover:bg-primary/5`}>
@@ -488,26 +468,27 @@ export default function Responses() {
                       let displayValue = res.data[col.name] || '-';
                       if (colNameLower === 'no' || colNameLower === 'nomor') displayValue = responses.length - index; 
                       return (
-                        <td key={col.name} className="px-6 py-4 text-gray-300 truncate max-w-[200px]">
+                        <td key={col.name} className="px-4 md:px-6 py-3 md:py-4 text-gray-300 truncate max-w-[150px] md:max-w-[200px]">
                           {String(displayValue).startsWith('http') ? <a href={displayValue} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faFileDownload} className="mr-1.5" /> UNDUH</a> : displayValue}
                         </td>
                       );
                     })}
                     
-                    <td className="px-6 py-4 flex justify-end space-x-2 items-center">
-                      <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors mr-1">
-                        <FontAwesomeIcon icon={faUserShield} className="mr-1" /> Tindak Lanjut
+                    {/* TOMBOL TINDAK LANJUT & HAPUS */}
+                    <td className="px-4 md:px-6 py-3 md:py-4 flex justify-end space-x-2 items-center sticky right-0 bg-darker/90 backdrop-blur z-10 shadow-[-10px_0_15px_rgba(0,0,0,0.5)]">
+                      <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-2 md:px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[9px] md:text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors">
+                        <FontAwesomeIcon icon={faUserShield} className="md:mr-1" /> <span className="hidden md:inline">Tindak Lanjut</span>
                       </button>
 
                       {!isVerifikator && (
                         res.data.delete_request_status === 'pending' ? (
-                          <><span className="text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
-                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
+                          <><span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse hidden sm:inline">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2 md:px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
+                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[9px] md:text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
                       )}
                     </td>
                   </tr>
                 ))
-              ) : <tr><td colSpan={activeSchema.length + 1} className="text-center py-10 text-gray-500">Kosong.</td></tr>}
+              ) : <tr><td colSpan={activeSchema.length + 1} className="text-center py-8 md:py-10 text-gray-500">Kosong.</td></tr>}
             </tbody>
           </table>
         </div>
