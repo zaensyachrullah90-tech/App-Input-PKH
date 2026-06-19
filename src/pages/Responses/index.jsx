@@ -10,8 +10,10 @@ export default function Responses() {
   const [selectedFormId, setSelectedFormId] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeSchema, setActiveSchema] = useState([]);
+  
+  // DETEKSI ROLE VERIFIKATOR
+  const [isVerifikator, setIsVerifikator] = useState(false);
 
-  // STATE UNTUK EXPORT METADATA TTD
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMeta, setExportMeta] = useState(() => {
     const cachedMeta = localStorage.getItem('smart_export_meta_cache');
@@ -20,16 +22,24 @@ export default function Responses() {
     };
   });
 
-  // ========================================================
-  // LOGIKA BARU: STATE RUANG KERJA VERIFIKATOR (TINDAK LANJUT)
-  // ========================================================
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyData, setVerifyData] = useState(null); // Menyimpan ID dan metadata asli
-  const [verifyEditData, setVerifyEditData] = useState({}); // Menyimpan input form verifikator
+  const [verifyData, setVerifyData] = useState(null); 
+  const [verifyEditData, setVerifyEditData] = useState({}); 
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
-  useEffect(() => { fetchForms(); }, []);
+  useEffect(() => { 
+    fetchForms(); 
+    checkRole();
+  }, []);
+
   useEffect(() => { if (selectedFormId) fetchResponses(selectedFormId); }, [selectedFormId]);
+
+  const checkRole = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.email?.toLowerCase().includes('verifikator')) {
+      setIsVerifikator(true);
+    }
+  };
 
   const fetchForms = async () => {
     const { data } = await supabase.from('forms').select('*').order('created_at', { ascending: false });
@@ -56,6 +66,7 @@ export default function Responses() {
   };
 
   const handleAdminDelete = async (id) => {
+    if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
     if (!window.confirm('Hapus arsip ini secara permanen?')) return;
     try {
       await supabase.from('form_responses').delete().eq('id', id);
@@ -65,6 +76,7 @@ export default function Responses() {
   };
 
   const handleRejectDelete = async (resItem) => {
+    if (isVerifikator) return toast.error('Akses Ditolak.');
     try {
       const updatedData = { ...resItem.data };
       delete updatedData.delete_request_status;
@@ -74,9 +86,6 @@ export default function Responses() {
     } catch (err) {}
   };
 
-  // ========================================================
-  // FUNGSI BARU: MESIN VERIFIKASI (SUNTIK HEADER & ISI DATA)
-  // ========================================================
   const formatRupiah = (angka) => {
     const numberString = angka.toString().replace(/[^,\d]/g, '');
     const split = numberString.split(',');
@@ -89,17 +98,14 @@ export default function Responses() {
 
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
+    if (isVerifikator) return toast.error('Hanya Admin yang bisa membuat Header baru.');
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
     const toastId = toast.loading('Menyuntikkan Header Verifikasi ke Database...');
     try {
       const dropdownOptions = newVerifyCol.type === 'select' && newVerifyCol.options ? newVerifyCol.options.split(',').map(opt => opt.trim()) : [];
       const newCol = { 
         name: newVerifyCol.name.toLowerCase().replace(/\s+/g, '_'), 
-        label: newVerifyCol.label.toUpperCase(), 
-        type: newVerifyCol.type, 
-        options: dropdownOptions, 
-        adminLocked: true, // MUTLAK: Agar kolom ini tidak muncul di form pengisian publik
-        defaultValue: '' 
+        label: newVerifyCol.label.toUpperCase(), type: newVerifyCol.type, options: dropdownOptions, adminLocked: true, defaultValue: '' 
       };
       
       const updatedSchema = [...activeSchema, newCol];
@@ -108,14 +114,13 @@ export default function Responses() {
       
       toast.success('Header Verifikasi Berhasil Dibuat!', { id: toastId });
       setNewVerifyCol({ name: '', label: '', type: 'text', options: '' });
-      fetchForms(); // Refresh agar kolom baru terbaca ke state
+      fetchForms(); 
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
   const handleVerifyInputChange = (e, field) => {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
-
     if (field.type === 'currency') {
       value = value ? formatRupiah(value) : '';
     } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
@@ -135,10 +140,6 @@ export default function Responses() {
     } catch (err) { toast.error('Gagal menyimpan verifikasi.', { id: toastId }); }
   };
 
-
-  // ========================================================
-  // EXPORT EXCEL & PDF (BLUEPRINT TERKUNCI MATI)
-  // ========================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
@@ -151,9 +152,8 @@ export default function Responses() {
       const row = [];
       activeSchema.forEach(col => {
         const colNameLower = col.name.toLowerCase();
-        if (colNameLower === 'no' || colNameLower === 'nomor') {
-          row.push(index + 1);
-        } else {
+        if (colNameLower === 'no' || colNameLower === 'nomor') { row.push(index + 1); } 
+        else {
           let cellValue = res.data[col.name] || '-';
           if (typeof cellValue === 'string') {
             cellValue = cellValue.replace(/"/g, '""');
@@ -224,7 +224,6 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151' } }} />
       
-      {/* MODAL CONFIG EXPORT (KUNCI BLUEPRINT) */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
@@ -245,37 +244,43 @@ export default function Responses() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL BARU: VERIFICATOR WORKSPACE (TINDAK LANJUT DATA) */}
-      {/* ======================================================== */}
+      {/* RUANG KERJA VERIFIKATOR (TINDAK LANJUT) */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto py-10">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl p-6 md:p-8 rounded-3xl shadow-2xl relative my-auto animate-fade-in-up">
             <button onClick={() => setShowVerifyModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             
             <div className="border-b border-white/10 pb-4 mb-6">
-              <h3 className="text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-primary" /> Ruang Verifikator - Tindak Lanjut Data</h3>
+              <h3 className="text-xl font-black text-white uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-primary" /> Ruang Tindak Lanjut Data</h3>
               <p className="text-gray-400 text-xs mt-1">Reg: <span className="text-primary font-mono">{verifyData?.data?.nomor_registrasi || '-'}</span> | Pemohon: <span className="text-white font-bold">{verifyData?.data?.nama || '-'}</span></p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* KOLOM KIRI: ALAT SUNTIK HEADER VERIFIKASI BARU */}
-              <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
-                <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
-                <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom baru (Misal: Status Kelayakan). Kolom ini otomatis <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span> dan hanya untuk Verifikator.</p>
-                <form onSubmit={handleAddVerifyColumn} className="space-y-3">
-                  <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                  <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
-                  <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
-                    <option value="text">Teks Pendek</option><option value="number">Angka / Kode</option><option value="date">Tanggal</option>
-                    <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown (Pilihan)</option>
-                  </select>
-                  {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak Layak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
-                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
-                </form>
-              </div>
+              
+              {/* FORM TAMBAH HEADER KHUSUS (DISEMBUNYIKAN JIKA ROLE = VERIFIKATOR) */}
+              {!isVerifikator ? (
+                <div className="lg:col-span-1 bg-black/30 p-5 rounded-2xl border border-white/5 h-fit">
+                  <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-2"><FontAwesomeIcon icon={faPlus} className="mr-2" /> Suntik Header Khusus</h4>
+                  <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">Tambahkan kolom verifikasi yang <span className="text-red-400 font-bold">TERKUNCI DARI PUBLIK</span>.</p>
+                  <form onSubmit={handleAddVerifyColumn} className="space-y-3">
+                    <input type="text" required placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                    <input type="text" required placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                    <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
+                      <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
+                      <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                    </select>
+                    {newVerifyCol.type === 'select' && <textarea required placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs outline-none h-16" />}
+                    <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl uppercase text-[10px] tracking-widest transition-colors shadow-lg">Buat Header Verifikasi</button>
+                  </form>
+                </div>
+              ) : (
+                <div className="lg:col-span-1 bg-blue-900/10 p-5 rounded-2xl border border-blue-500/20 h-fit">
+                  <h4 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2" /> Mode Verifikator</h4>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">Anda sedang berada di ruang verifikasi. Silakan isi kolom yang tersedia untuk menindaklanjuti data permohonan ini.</p>
+                </div>
+              )}
 
-              {/* KOLOM KANAN: FORM PENGISIAN SELURUH DATA */}
+              {/* FORM PENGISIAN VERIFIKATOR */}
               <div className="lg:col-span-2">
                  <form onSubmit={handleSaveVerify} className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -338,7 +343,7 @@ export default function Responses() {
               {forms.map(f => <option key={f.id} value={f.id} className="bg-[#0f172a]">{f.title.toUpperCase()}</option>)}
             </select>
           </div>
-          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest"><FontAwesomeIcon icon={faPrint} className="mr-2" /> Cetak Lampiran</button>
+          <button onClick={() => setShowExportModal(true)} className="w-full sm:w-auto px-5 py-3.5 bg-primary hover:bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-widest transition-all"><FontAwesomeIcon icon={faPrint} className="mr-2" /> Cetak Lampiran</button>
         </div>
       </div>
       
@@ -369,15 +374,18 @@ export default function Responses() {
                       );
                     })}
                     
-                    {/* TOMBOL TINDAK LANJUT VERIFIKATOR & HAPUS */}
+                    {/* TOMBOL TINDAK LANJUT & HAPUS */}
                     <td className="px-6 py-4 flex justify-end space-x-2 items-center">
                       <button onClick={() => { setVerifyData(res); setVerifyEditData(res.data); setShowVerifyModal(true); }} className="px-3 py-1.5 bg-blue-950/40 text-blue-400 border border-blue-900/50 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-colors mr-1">
                         <FontAwesomeIcon icon={faUserShield} className="mr-1" /> Tindak Lanjut
                       </button>
 
-                      {res.data.delete_request_status === 'pending' ? (
-                        <><span className="text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
-                      ) : <button onClick={() => handleAdminDelete(res.id)} className="px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>}
+                      {/* SEMBUNYIKAN TOMBOL HAPUS JIKA YANG LOGIN ADALAH VERIFIKATOR */}
+                      {!isVerifikator && (
+                        res.data.delete_request_status === 'pending' ? (
+                          <><span className="text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
+                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
