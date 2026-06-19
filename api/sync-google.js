@@ -1,100 +1,100 @@
 import { google } from 'googleapis';
-import stream from 'stream';
+import { Readable } from 'stream';
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ message: 'Metode Tidak Diizinkan' });
-
-  const { action, title, spreadsheetId, rowData, schema, fileName, mimeType, base64Data, folderId } = req.body;
-
-  const auth = new google.auth.JWT(
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    null,
-    process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
-  );
-
-  const sheets = google.sheets({ version: 'v4', auth });
-  const drive = google.drive({ version: 'v3', auth });
+  // Hanya menerima metode POST
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // AKSI 1: BUAT SPREADSHEET BARU DI FOLDER SPESIFIK
-    if (action === 'createForm') {
-      const fileMetadata = {
-        name: title,
-        mimeType: 'application/vnd.google-apps.spreadsheet'
-      };
+    const { action } = req.body;
+    
+    // Inisialisasi Otentikasi Robot Google (Service Account)
+    const auth = new google.auth.JWT(
+      process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      null,
+      process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+    );
+
+    const drive = google.drive({ version: 'v3', auth });
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // ==========================================
+    // 1. MESIN UPLOAD BERKAS KE GOOGLE DRIVE
+    // ==========================================
+    if (action === 'uploadFile') {
+      const { fileName, mimeType, base64Data, folderId } = req.body;
       
-      // Jika Admin menetapkan ID Folder, masukkan ke parents berkas
-      if (folderId) {
-        fileMetadata.parents = [folderId];
-      }
+      const buffer = Buffer.from(base64Data, 'base64');
+      const stream = new Readable();
+      stream.push(buffer);
+      stream.push(null);
 
-      const spreadsheetFile = await drive.files.create({
-        requestBody: fileMetadata,
-        fields: 'id',
+      const fileMetadata = { name: fileName, parents: [folderId] };
+      const media = { mimeType, body: stream };
+
+      const file = await drive.files.create({
+        resource: fileMetadata,
+        media: media,
+        fields: 'id, webViewLink'
       });
 
-      const newSpreadsheetId = spreadsheetFile.data.id;
-      const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${newSpreadsheetId}/edit`;
-
+      // Buka gembok file agar bisa dilihat Publik/Admin via Link
       await drive.permissions.create({
-        fileId: newSpreadsheetId,
-        requestBody: { role: 'editor', type: 'anyone' },
+        fileId: file.data.id,
+        requestBody: { role: 'reader', type: 'anyone' }
       });
 
-      return res.status(200).json({
-        spreadsheetId: newSpreadsheetId,
-        spreadsheetUrl: spreadsheetUrl,
-      });
+      return res.status(200).json({ link: file.data.webViewLink });
     }
 
-    // AKSI 2: SINKRONISASI DATA KE SPREADSHEET
+    // ==========================================
+    // 2. MESIN PEMBUAT SPREADSHEET (SMART FORM)
+    // ==========================================
+    if (action === 'createForm') {
+      const { title, folderId } = req.body;
+      const fileMetadata = {
+        name: title,
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+        parents: [folderId] // Spreadsheet langsung masuk ke folder yang ditentukan
+      };
+
+      const file = await drive.files.create({
+        resource: fileMetadata,
+        fields: 'id, webViewLink'
+      });
+
+      await drive.permissions.create({
+        fileId: file.data.id,
+        requestBody: { role: 'writer', type: 'anyone' } // Buka akses tulis baca
+      });
+
+      return res.status(200).json({ spreadsheetId: file.data.id, spreadsheetUrl: file.data.webViewLink });
+    }
+
+    // ==========================================
+    // 3. MESIN PENULIS DATA KE SPREADSHEET
+    // ==========================================
     if (action === 'appendRow') {
-      const headers = schema.map(col => col.label);
-      const values = schema.map(col => rowData[col.name] || '');
+      const { spreadsheetId, schema, rowData } = req.body;
+      
+      // Mengurutkan data sesuai urutan kolom skema di aplikasi
+      const rowValues = schema.map(col => rowData[col.name] || '');
 
       await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'Sheet1!A1',
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [headers] },
+        requestBody: { values: [rowValues] }
       });
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: 'Sheet1!A2',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [values] },
-      });
+
       return res.status(200).json({ success: true });
     }
 
-    // AKSI 3: UPLOAD FILE KE GOOGLE DRIVE DI FOLDER SPESIFIK
-    if (action === 'uploadFile') {
-      const bufferStream = new stream.PassThrough();
-      bufferStream.end(Buffer.from(base64Data, 'base64'));
-
-      const fileMetadata = { name: fileName || `Upload_${Date.now()}` };
-      
-      if (folderId) {
-        fileMetadata.parents = [folderId];
-      }
-
-      const file = await drive.files.create({
-        resource: fileMetadata,
-        media: { mimeType: mimeType, body: bufferStream },
-        fields: 'id, webViewLink',
-      });
-      
-      await drive.permissions.create({
-        fileId: file.data.id,
-        requestBody: { role: 'reader', type: 'anyone' },
-      });
-      
-      return res.status(200).json({ link: file.data.webViewLink });
-    }
+    return res.status(400).json({ error: 'Aksi Sistem tidak dikenali' });
 
   } catch (error) {
-    console.error('Google Workspace Error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Google API Error:', error);
+    return res.status(500).json({ error: error.message || 'Terjadi kesalahan sistem server.' });
   }
 }
