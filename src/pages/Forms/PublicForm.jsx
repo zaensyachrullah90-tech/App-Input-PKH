@@ -6,7 +6,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
-{
   "TAPIN": {
     "BAKARANGAN": [
       "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN"
@@ -45,7 +44,7 @@ const DATA_WILAYAH = {
       "ANTASARI", "ANTASARI HILIR", "BADAUN", "BANUA HALAT KANAN", "BANUA HALAT KIRI", "BANUA HANYAR", "BANUA HANYAR HULU", "JINGAH BABARIS", "KAKARAN", "KERAMAT", "KUPANG", "LUMBU RAYA", "PERINTIS RAYA", "RANGDA MALINGKUNG", "RANTAU KANAN", "RANTAU KIWA"
     ]
   }
-}
+};
 
 export default function PublicForm() {
   const { id: formId } = useParams();
@@ -276,13 +275,10 @@ export default function PublicForm() {
                   const isAdminLocked = field.adminLocked === true && !editingId;
                   const finalLockedStatus = isAdminLocked || isNoField;
                   
-                  // ==========================================
-                  // KUNCI MUTLAK: PAKSA MENJADI DROPDOWN JIKA ITU WILAYAH
-                  // ==========================================
                   const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
                   
                   const isFile = field.type === 'file';
-                  const isSelect = field.type === 'select' || isRegionField; // Paksa Select aktif!
+                  const isSelect = field.type === 'select' || isRegionField; 
                   const isCurrency = field.type === 'currency';
 
                   return (
@@ -311,7 +307,6 @@ export default function PublicForm() {
                               {(() => {
                                 let selectOptions = field.options || [];
                                 
-                                // AUTO CASCADE BERDASARKAN PEMETAAN KATA
                                 if (colNameLower.includes('kabupaten')) {
                                   selectOptions = Object.keys(DATA_WILAYAH);
                                 } else if (colNameLower.includes('kecamatan')) {
