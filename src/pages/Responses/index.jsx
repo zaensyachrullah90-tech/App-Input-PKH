@@ -88,7 +88,7 @@ export default function Responses() {
   };
 
   const handleAdminDelete = async (id) => {
-    if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
+    if (isVerifikator) return toast.error('Akses Ditolak.');
     if (!window.confirm('Hapus arsip ini secara permanen?')) return;
     try {
       await supabase.from('form_responses').delete().eq('id', id);
@@ -133,7 +133,6 @@ export default function Responses() {
       setActiveSchema(updatedSchema);
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
-      // AUTO UPDATE KOLOM SPREADSHEET
       if (formConfig?.spreadsheet_id) {
         await fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -222,10 +221,11 @@ export default function Responses() {
             });
             const driveData = await res.json();
             if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error('Timeout Server'); }
+            else { throw new Error('Server Error'); }
           } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
         }
       });
+
       await Promise.all(uploadPromises);
 
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
@@ -238,17 +238,22 @@ export default function Responses() {
     finally { setIsSaving(false); }
   };
 
+  // =================================================================================
+  // FITUR MUTLAK: EXPORT HANYA KOLOM BAWAAN AWAL YANG RAPI, TANPA KOLOM VERIFIKATOR
+  // =================================================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
     const headerMetadata = [['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`], ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`], [] ];
-    const tableHeaders = activeSchema.map(col => col.label);
+    
+    const exportSchema = activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor');
+    const tableHeaders = exportSchema.map(col => col.label);
     const reversedResponses = [...responses].reverse();
 
     const csvData = reversedResponses.map((res, index) => {
       const row = [];
-      activeSchema.forEach(col => {
+      exportSchema.forEach(col => {
         const colNameLower = col.name.toLowerCase();
         if (colNameLower === 'no' || colNameLower === 'nomor') { row.push(index + 1); } 
         else {
@@ -281,13 +286,14 @@ export default function Responses() {
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    const tableHeadersHTML = activeSchema.map(col => `<th>${col.label}</th>`).join('');
+    const exportSchema = activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor');
+    const tableHeadersHTML = exportSchema.map(col => `<th style="padding: 8px; border: 1px solid #000; text-align: left; background-color: #f3f4f6;">${col.label}</th>`).join('');
     const tableRowsHTML = reversedResponses.map((res, index) => {
-      return `<tr>${activeSchema.map(col => {
+      return `<tr>${exportSchema.map(col => {
             const colNameLower = col.name.toLowerCase();
             let val = res.data[col.name] || '-';
             if (colNameLower === 'no' || colNameLower === 'nomor') val = index + 1;
-            return `<td>${val}</td>`;
+            return `<td style="padding: 7px; border: 1px solid #000;">${val}</td>`;
           }).join('')}</tr>`;
     }).join('');
 
@@ -300,8 +306,6 @@ export default function Responses() {
           .meta-info table { width: auto; border: none; margin: 0; }
           .meta-info td { padding: 4px 10px 4px 0; border: none; font-weight: bold; text-transform: uppercase; }
           table.data-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }
-          table.data-table th { background: #f3f4f6; border: 1px solid #000; padding: 8px; text-align: left; text-transform: uppercase; font-weight: bold; }
-          table.data-table td { border: 1px solid #000; padding: 7px; text-transform: uppercase; }
           .ttd-block { margin-top: 40px; float: right; text-align: left; min-width: 260px; font-size: 13px; page-break-inside: avoid; }
           .ttd-space { height: 70px; }
           .clear { clear: both; }
@@ -326,8 +330,8 @@ export default function Responses() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Verifikasi...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Bypass Server API Google Aktif.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
+            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif mengamankan file.</p>
           </div>
         </div>
       )}
@@ -352,7 +356,6 @@ export default function Responses() {
         </div>
       )}
 
-      {/* RUANG VERIFIKATOR - FULL SCREEN DESKTOP DAN FULL RESPONSIVE FIX */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
           <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up overflow-hidden">
@@ -402,7 +405,6 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MUTLAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
@@ -424,7 +426,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
