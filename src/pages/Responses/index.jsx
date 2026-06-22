@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft, faEdit } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
 // =========================================================================
 // GANTI DENGAN URL GOOGLE APPS SCRIPT ANDA
 // =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -52,8 +52,11 @@ export default function Responses() {
   const [verifyEditData, setVerifyEditData] = useState({}); 
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
+  // FITUR MUTLAK: CRUD SCHEMA STATE
+  const [editingColName, setEditingColName] = useState(null);
+  const [editColData, setEditColData] = useState({});
+
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => { 
     fetchForms(); 
@@ -95,15 +98,15 @@ export default function Responses() {
   };
 
   // =========================================================================
-  // HAPUS MUTLAK: HILANG DI UI -> HANCUR DI DATABASE -> HANCUR DI SPREADSHEET & DRIVE
+  // OPTIMISTIC DELETE: UI HANCUR INSTAN -> SUPABASE -> SPREADSHEET & DRIVE
   // =========================================================================
   const handleAdminDelete = async (id) => {
-    if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
+    if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data utama.');
     if (!window.confirm('Hapus arsip ini secara permanen? Data di Google Sheet & Drive juga akan dihancurkan otomatis.')) return;
     
     const recordToDelete = responses.find(r => r.id === id);
     setResponses(prev => prev.filter(r => r.id !== id));
-    toast.success('Data berhasil dihapus dari sistem!');
+    toast.success('Data berhasil dihapus kilat!');
 
     try {
       await supabase.from('form_responses').delete().eq('id', id);
@@ -116,15 +119,10 @@ export default function Responses() {
       });
 
       if (formConfig?.spreadsheet_id) {
-        fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'deleteData',
-            spreadsheetId: formConfig.spreadsheet_id,
-            nomor_registrasi: recordToDelete.data.nomor_registrasi,
-            fileUrls: fileUrls
-          })
-        }).catch(e => console.error("Gagal Hapus Sheet", e));
+        fetch(GAS_WEB_APP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'deleteData', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: recordToDelete.data.nomor_registrasi, fileUrls: fileUrls })
+        });
       }
     } catch (err) { fetchResponses(selectedFormId); }
   };
@@ -151,33 +149,66 @@ export default function Responses() {
   };
 
   // =========================================================================
-  // FITUR DIKEMBALIKAN: VERIFIKATOR BISA MENGINJEKSI KOLOM SPREADSHEET
+  // FULL CRUD SCHEMA MANAJEMEN KOLOM UNTUK VERIFIKATOR
   // =========================================================================
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
-    const toastId = toast.loading('Menyuntikkan Header ke Database & Spreadsheet...');
+    const toastId = toast.loading('Menyuntikkan Kolom Baru...');
     try {
       const dropdownOptions = newVerifyCol.type === 'select' && newVerifyCol.options ? newVerifyCol.options.split(',').map(opt => opt.trim()) : [];
-      const newCol = { 
-        name: newVerifyCol.name.toLowerCase().replace(/\s+/g, '_'), 
-        label: newVerifyCol.label.toUpperCase(), type: newVerifyCol.type, options: dropdownOptions, adminLocked: true, defaultValue: '' 
-      };
-      
+      const newCol = { name: newVerifyCol.name.toLowerCase().replace(/\s+/g, '_'), label: newVerifyCol.label.toUpperCase(), type: newVerifyCol.type, options: dropdownOptions, adminLocked: true, defaultValue: '' };
       const updatedSchema = [...activeSchema, newCol];
+      
       setActiveSchema(updatedSchema);
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
       if (formConfig?.spreadsheet_id) {
-        await fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        fetch(GAS_WEB_APP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
         });
       }
 
-      toast.success('Header Berhasil Dibuat dan Disinkronisasi!', { id: toastId });
+      toast.success('Header Kolom Dibuat!', { id: toastId });
       setNewVerifyCol({ name: '', label: '', type: 'text', options: '' });
-    } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
+    } catch (err) { toast.error('Gagal.', { id: toastId }); }
+  };
+
+  const handleDeleteColumn = async (colName) => {
+    if (!window.confirm(`Hapus kolom "${colName}" ini? Semua isian terkait juga akan hilang dari tabel.`)) return;
+    const updatedSchema = activeSchema.filter(col => col.name !== colName);
+    setActiveSchema(updatedSchema);
+    await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
+    
+    if (formConfig?.spreadsheet_id) {
+      fetch(GAS_WEB_APP_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
+      });
+    }
+    toast.success('Kolom Berhasil Dihapus.');
+  };
+
+  const startEditColumn = (col) => {
+    setEditingColName(col.name);
+    setEditColData({ ...col, options: col.options ? col.options.join(', ') : '' });
+  };
+
+  const saveEditColumn = async () => {
+    const dropdownOptions = editColData.type === 'select' && editColData.options ? editColData.options.split(',').map(opt => opt.trim()) : [];
+    const updatedSchema = activeSchema.map(col => col.name === editingColName ? { ...editColData, options: dropdownOptions } : col);
+    setActiveSchema(updatedSchema);
+    setEditingColName(null);
+    
+    await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
+    if (formConfig?.spreadsheet_id) {
+      fetch(GAS_WEB_APP_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
+      });
+    }
+    toast.success('Kolom Berhasil Diperbarui.');
   };
 
   const handleVerifyFileChange = (e, fieldName) => {
@@ -243,7 +274,7 @@ export default function Responses() {
     e.preventDefault();
     if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
 
-    const toastId = toast.loading('Menyiapkan Pembaruan...');
+    const toastId = toast.loading('Menyiapkan Upload Cepat...');
     let finalData = { ...verifyEditData };
 
     try {
@@ -252,58 +283,50 @@ export default function Responses() {
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const res = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`); }
+            if(driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error('Server Error'); }
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload berkas.`);}
         }
       });
+
       await Promise.all(uploadPromises);
 
-      // SINKRONISASI KE GOOGLE SPREADSHEET (MENUNGGU RESPON)
-      if (formConfig?.spreadsheet_id) {
-         try {
-            const sheetRes = await fetch('/api/sync-google', {
-               method: 'POST', headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ action: 'updateRow', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: finalData.nomor_registrasi, schema: activeSchema, rowData: finalData })
-            });
-            const sheetData = await sheetRes.json();
-            if(!sheetRes.ok || sheetData.error) throw new Error(sheetData.error);
-         } catch(e) {
-            toast.error(`Perhatian: Gagal Sinkron ke Spreadsheet. ${e.message}`, { duration: 6000 });
-         }
-      }
-
-      await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
-      
-      toast.success('Hasil Verifikasi Berhasil Disimpan & Tersinkronisasi!', { id: toastId });
+      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
+      toast.success('Tindak Lanjut Berhasil Disimpan!', { id: toastId });
       setResponses(prev => prev.map(item => item.id === verifyData.id ? { ...item, data: finalData } : item));
       setShowVerifyModal(false);
       setRawVerifyFiles({});
-    } catch (err) { toast.error('Gagal memproses UI.', { id: toastId }); }
+
+      // BACKGROUND SYNC KE SUPABASE & SPREADSHEET
+      (async () => {
+        try {
+          await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
+          if (formConfig?.spreadsheet_id) {
+             fetch(GAS_WEB_APP_URL, {
+                method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'updateRow', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: finalData.nomor_registrasi, schema: activeSchema, rowData: finalData })
+             });
+          }
+        } catch(e) {}
+      })();
+      
+    } catch (err) { toast.error('Gagal.', { id: toastId }); }
   };
 
-  // =========================================================================
-  // CETAK EXCEL RAPI BERGARIS DENGAN DUA OPSI
-  // =========================================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
     const headerMetadata = [['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`], ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`], [] ];
-    
-    const exportSchema = exportType === 'lampiran' 
-      ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
-      : activeSchema;
-
+    const exportSchema = exportType === 'lampiran' ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') : activeSchema;
     const reversedResponses = [...responses].reverse();
 
     const tableHeadersHTML = exportSchema.map(col => `<th style="background-color: #f3f4f6; border: 1px solid #000; padding: 8px; font-weight: bold; text-transform: uppercase;">${col.label}</th>`).join('');
-
     const tableRowsHTML = reversedResponses.map((res, index) => {
       return `<tr>${exportSchema.map(col => {
         const colNameLower = col.name.toLowerCase();
@@ -315,39 +338,19 @@ export default function Responses() {
 
     const excelHTML = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11px; }
-        </style>
-      </head>
+      <head><meta charset="utf-8" /><style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11px; }</style></head>
       <body>
         <table>
           <tr><td colspan="${exportSchema.length}" style="font-size: 14px; font-weight: bold; text-align: center;">DATA ${formTitle.toUpperCase()}</td></tr>
           <tr><td colspan="${exportSchema.length}" style="text-align: center;">LAMPIRAN NOMOR: ${exportMeta.noSurat.toUpperCase()}</td></tr>
           <tr><td colspan="${exportSchema.length}"></td></tr>
-          <tr>${tableHeadersHTML}</tr>
-          ${tableRowsHTML}
-          <tr><td colspan="${exportSchema.length}"></td></tr>
-          <tr>
-            <td colspan="${Math.max(1, exportSchema.length - 2)}"></td>
-            <td colspan="2" style="text-align: center;">
-              MENGETAHUI,<br/><br/><br/><br/>
-              <b>${exportMeta.jabatan}</b><br/>
-              <u>${exportMeta.nama || '-'}</u><br/>
-              NIK/NIP. ${exportMeta.nik || '-'}
-            </td>
-          </tr>
+          <tr>${tableHeadersHTML}</tr>${tableRowsHTML}<tr><td colspan="${exportSchema.length}"></td></tr>
+          <tr><td colspan="${Math.max(1, exportSchema.length - 2)}"></td><td colspan="2" style="text-align: center;">MENGETAHUI,<br/><br/><br/><br/><b>${exportMeta.jabatan}</b><br/><u>${exportMeta.nama || '-'}</u><br/>NIK/NIP. ${exportMeta.nik || '-'}</td></tr>
         </table>
-      </body>
-      </html>
+      </body></html>
     `;
-
     const blob = new Blob(['\uFEFF' + excelHTML], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `Laporan_Excel_${formTitle}.xls`;
-    link.click();
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `Laporan_Excel_${formTitle}.xls`; link.click();
     setShowExportModal(false);
   };
 
@@ -357,10 +360,7 @@ export default function Responses() {
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    const exportSchema = exportType === 'lampiran' 
-      ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
-      : activeSchema;
-
+    const exportSchema = exportType === 'lampiran' ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') : activeSchema;
     const tableHeadersHTML = exportSchema.map(col => `<th style="padding: 8px; border: 1px solid #000; text-align: left; background-color: #f3f4f6;">${col.label}</th>`).join('');
     const tableRowsHTML = reversedResponses.map((res, index) => {
       return `<tr>${exportSchema.map(col => {
@@ -372,8 +372,7 @@ export default function Responses() {
     }).join('');
 
     printWindow.document.write(`
-      <html><head><title></title>
-        <style>
+      <html><head><title></title><style>
           @page { size: landscape; margin: 0; }
           body { font-family: 'Arial', sans-serif; color: #000; padding: 15mm; margin: 0; line-height: 1.4; background: #fff; }
           .meta-info { margin-bottom: 20px; font-size: 13px; }
@@ -386,8 +385,7 @@ export default function Responses() {
           .ttd-space { height: 70px; }
           .clear { clear: both; }
           @media print { body { padding: 15mm; -webkit-print-color-adjust: exact; } }
-        </style>
-      </head><body>
+        </style></head><body>
         <div class="meta-info"><table><tr><td>LAMPIRAN NOMOR</td><td>: ${exportMeta.noSurat.toUpperCase() || '-'}</td></tr><tr><td>PERIHAL</td><td>: DATA ${formTitle.toUpperCase()}</td></tr></table></div>
         <table class="data-table"><thead><tr>${tableHeadersHTML}</tr></thead><tbody>${tableRowsHTML}</tbody></table>
         <div class="ttd-block"><div>MENGETAHUI,</div><div style="font-weight: bold; margin-top: 2px;">${exportMeta.jabatan}</div><div class="ttd-space"></div><div style="font-weight: bold; text-decoration: underline;">${exportMeta.nama || '-'}</div><div>NIK/NIP. ${exportMeta.nik || '-'}</div></div>
@@ -407,7 +405,7 @@ export default function Responses() {
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
             <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Konfigurasi Lampiran</h3>
-            <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Data di bawah ini akan diingat otomatis oleh sistem memori browser (Cache).</p>
+            <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Pilih jenis cetak laporan dan isi metadata.</p>
             
             <div className="space-y-4">
               <div className="bg-black/30 p-4 rounded-xl border border-white/10 mb-2">
@@ -419,11 +417,10 @@ export default function Responses() {
                   </label>
                   <label className="flex items-center space-x-2 text-xs text-white cursor-pointer hover:text-primary transition-colors">
                     <input type="radio" value="lengkap" checked={exportType === 'lengkap'} onChange={() => setExportType('lengkap')} className="accent-primary w-4 h-4" />
-                    <span className="font-semibold">Laporan Penuh (+ Kolom Verifikator)</span>
+                    <span className="font-semibold">Laporan Penuh (+ Kolom Verifikasi)</span>
                   </label>
                 </div>
               </div>
-
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Nomor Lampiran</label><input type="text" value={exportMeta.noSurat} onChange={e => handleMetaChange('noSurat', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none uppercase font-semibold" /></div>
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Jabatan TTD</label><input type="text" value={exportMeta.jabatan} onChange={e => handleMetaChange('jabatan', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Nama TTD</label><input type="text" value={exportMeta.nama} onChange={e => handleMetaChange('nama', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
@@ -449,33 +446,62 @@ export default function Responses() {
             </div>
 
             <form onSubmit={handleSaveVerify} className="flex flex-col flex-1 min-h-0 bg-[#0f172a]">
-              
               <div className="flex-1 overflow-y-auto p-4 md:p-10 custom-scrollbar relative">
                 <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
                   
+                  {/* PANEL KIRI: CRUD KOLOM VERIFIKATOR MUTLAK */}
                   <div className="lg:col-span-1 space-y-4">
                     <div className="bg-blue-900/10 p-5 md:p-6 rounded-2xl md:rounded-3xl border border-blue-500/20 shadow-inner">
                       <h4 className="text-sm md:text-base font-black text-blue-400 uppercase tracking-widest mb-3 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-3 text-xl" /> {isVerifikator ? 'Mode Verifikator' : 'Mode Administrator'}</h4>
-                      <p className="text-xs md:text-sm text-gray-400 leading-relaxed">Seluruh isian data awal pemohon telah <strong>dikunci mati oleh sistem keamanan</strong>. Anda hanya dapat mengisi kolom verifikasi yang telah disediakan di panel kanan.</p>
+                      <p className="text-xs md:text-sm text-gray-400 leading-relaxed">Seluruh isian data awal pemohon telah <strong>dikunci mati</strong>. Anda hanya dapat mengisi kolom verifikasi yang telah disediakan.</p>
                     </div>
                     
-                    {/* FITUR DIKEMBALIKAN: VERIFIKATOR BISA SUNTIK HEADER */}
                     <div className="bg-black/40 p-5 md:p-6 rounded-2xl md:rounded-3xl border border-white/5 shadow-inner">
-                      <h4 className="text-xs md:text-sm font-black text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-3"><FontAwesomeIcon icon={faPlus} className="mr-3" /> Suntik Header Khusus</h4>
-                      <div className="space-y-4">
-                        <input type="text" placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
-                        <input type="text" placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
-                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all">
+                      <h4 className="text-xs md:text-sm font-black text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-3"><FontAwesomeIcon icon={faPlus} className="mr-3" /> Manajemen Kolom Verifikasi</h4>
+                      
+                      {/* FORM SUNTIK HEADER */}
+                      <div className="space-y-3 mb-6">
+                        <input type="text" placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                        <input type="text" placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary" />
+                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs outline-none focus:border-primary">
                           <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
-                          <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
-                          <option value="file">Upload Berkas (Drive)</option>
+                          <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option><option value="file">Upload Berkas</option>
                         </select>
-                        {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs md:text-sm h-20 outline-none" />}
-                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all shadow-lg mt-2">Buat Header</button>
+                        {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-3 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs h-16 outline-none" />}
+                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-black py-3 rounded-xl uppercase text-[10px] tracking-widest transition-all">Suntik Kolom Baru</button>
+                      </div>
+
+                      {/* LIST KOLOM & EDIT/HAPUS (CRUD) */}
+                      <div className="border-t border-white/10 pt-4">
+                        <h5 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Daftar Kolom Sistem:</h5>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                          {activeSchema.map(col => (
+                            <div key={col.name} className="flex flex-col bg-[#0b1120] p-3 rounded-xl border border-gray-800">
+                               {editingColName === col.name ? (
+                                 <div className="space-y-2 animate-fade-in">
+                                   <input type="text" value={editColData.label} onChange={(e) => setEditColData({...editColData, label: e.target.value})} className="w-full p-2 bg-black border border-gray-700 text-white text-[10px] rounded" placeholder="Label Kolom" />
+                                   <div className="flex justify-end space-x-2 mt-2">
+                                     <button type="button" onClick={() => setEditingColName(null)} className="px-2 py-1 bg-gray-700 text-white text-[9px] rounded">Batal</button>
+                                     <button type="button" onClick={saveEditColumn} className="px-2 py-1 bg-primary text-black font-bold text-[9px] rounded">Simpan</button>
+                                   </div>
+                                 </div>
+                               ) : (
+                                 <div className="flex justify-between items-center">
+                                   <span className="text-[10px] font-bold text-gray-300">{col.label} {col.adminLocked ? <span className="text-blue-400 ml-1">(Verif)</span> : <span className="text-gray-500 ml-1">(Warga)</span>}</span>
+                                   <div className="flex space-x-2">
+                                      <button type="button" onClick={() => startEditColumn(col)} className="text-blue-400 hover:text-blue-300"><FontAwesomeIcon icon={faEdit}/></button>
+                                      <button type="button" onClick={() => handleDeleteColumn(col.name)} className="text-red-400 hover:text-red-300"><FontAwesomeIcon icon={faTrash}/></button>
+                                   </div>
+                                 </div>
+                               )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
 
+                  {/* PANEL KANAN: PENGISIAN FORM VERIFIKATOR */}
                   <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-black/20 p-4 md:p-8 rounded-2xl md:rounded-3xl border border-white/5">
                       {activeSchema.map((field) => {
@@ -497,7 +523,7 @@ export default function Responses() {
                             <label className="text-[10px] md:text-xs font-black text-gray-400 mb-2 uppercase tracking-widest flex items-center justify-between">
                               <span className="flex items-center">{field.label} {isDisabled && !isSystemGenerated && <span className="ml-2 text-[8px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded uppercase border border-red-500/30"><FontAwesomeIcon icon={faLock} className="mr-1"/> Kunci</span>}</span>
                               {hasFileUploaded && (
-                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] md:text-[10px] text-primary hover:text-yellow-400 underline font-black uppercase tracking-widest flex items-center transition-colors"><FontAwesomeIcon icon={faFolderOpen} className="mr-1.5"/> Buka Berkas Asli</a>
+                                <a href={existingValue} target="_blank" rel="noreferrer" className="text-[9px] md:text-[10px] text-primary hover:text-yellow-400 underline font-black uppercase tracking-widest flex items-center transition-colors"><FontAwesomeIcon icon={faFolderOpen} className="mr-1.5"/> Buka Berkas</a>
                               )}
                             </label>
 
@@ -507,7 +533,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
@@ -606,7 +632,7 @@ export default function Responses() {
                       return (
                         <td key={col.name} className="px-4 md:px-6 py-3 md:py-4 text-gray-300 truncate max-w-[150px] md:max-w-[200px]">
                           {String(displayValue).startsWith('http') ? <a href={displayValue} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faFileDownload} className="mr-1.5" /> UNDUH</a> : 
-                           String(displayValue).includes('GAGAL') || String(displayValue).includes('ERROR') ? <span className="text-red-400 font-bold bg-red-400/10 px-2 py-1.5 rounded-md text-[9px] border border-red-500/20">{displayValue}</span> : displayValue}
+                           String(displayValue).includes('GAGAL') ? <span className="text-red-400 font-bold bg-red-400/10 px-2 py-1.5 rounded-md text-[9px] border border-red-500/20">GAGAL UPLOAD</span> : displayValue}
                         </td>
                       );
                     })}
