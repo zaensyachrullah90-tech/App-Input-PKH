@@ -3,7 +3,12 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faUpload, faIdBadge, faChevronDown, faDownload } from '@fortawesome/free-solid-svg-icons';
+
+// =========================================================================
+// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
+// =========================================================================
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -32,9 +37,7 @@ export default function PublicForm() {
   const [formConfig, setFormConfig] = useState(null);
   
   const [activeTab, setActiveTab] = useState('input');
-  const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
-  const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -93,23 +96,15 @@ export default function PublicForm() {
   const handleInputChange = (e, field) => {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
-
-    if (field.type === 'currency') {
-      value = value ? formatRupiah(value) : '';
-    } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
-      value = value.toUpperCase();
-    }
+    if (field.type === 'currency') value = value ? formatRupiah(value) : '';
+    else value = value.toUpperCase();
 
     let newFormData = { ...formData, [field.name]: value };
 
     if (name.includes('kabupaten')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     } else if (name.includes('kecamatan')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
     setFormData(newFormData);
   };
@@ -118,7 +113,7 @@ export default function PublicForm() {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
-       return toast.error('Maaf, ukuran dokumen PDF/Berkas non-foto max 3.5 MB.');
+       return toast.error('Maaf, ukuran dokumen PDF max 3.5 MB.');
     }
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
@@ -161,121 +156,61 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     if (!formId) return toast.error('Form ID tidak terdeteksi.');
+    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Developer belum memasukkan URL Google Apps Script di kode!");
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
       if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') {
-        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
+        finalData[col.name] = (responses.length + 1);
       }
     });
 
     try {
-      // 1. PROSES UPLOAD BERKAS
+      // PROSES UPLOAD BYPASS KE GOOGLE APPS SCRIPT
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const res = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Wajib text/plain untuk bypass CORS GAS
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { 
-              finalData[key] = driveData.link; 
-            } else { throw new Error(driveData.error || 'Server Timeout'); }
-          } catch(err) { 
-            finalData[key] = `ERROR: ${err.message}`; 
-            toast.error(`Berkas ${key} gagal: ${err.message}`);
-          }
+            if(driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error(driveData.error || 'Server Error'); }
+          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas ${key} gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // 2. SIMPAN KE DATABASE LOKAL
-      if (editingId) {
-        await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
-        setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
-      } else {
-        const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
-        const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
-        const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
-        if (insertedData) setResponses(prev => [insertedData, ...prev]);
-      }
+      // SIMPAN DATABASE
+      const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+      const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
+      const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
+      if (insertedData) setResponses(prev => [insertedData, ...prev]);
 
-      // =================================================================================
-      // 3. FITUR MUTLAK BARU: BUAT SPREADSHEET OTOMATIS JIKA BELUM ADA & TEMBAKKAN DATA
-      // =================================================================================
-      let currentSheetId = formConfig?.spreadsheet_id;
-
-      if (!currentSheetId && !editingId) {
-        const toastSheetId = toast.loading('Membuat Spreadsheet Otomatis di Drive...');
-        try {
-          const createRes = await fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'createForm', title: `Data Formulir - ${formConfig.title}`, folderId: globalFolderId })
-          });
-          const createData = await createRes.json();
-          if (createRes.ok && createData.spreadsheetId) {
-            currentSheetId = createData.spreadsheetId;
-            // Kunci ID Sheet baru ke Database agar tidak buat lagi besok-besok
-            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-            
-            // Tulis Header Kolomnya Pertama Kali
-            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label]));
-            await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
-            });
-            toast.success('Spreadsheet Baru Berhasil Dibuat!', { id: toastSheetId });
-          }
-        } catch (e) { toast.error('Gagal membuat Spreadsheet otomatis.', { id: toastSheetId }); }
-      }
-
-      // SINKRONISASI DATA BARIS BARU KE SPREADSHEET
-      if (currentSheetId && !editingId) {
-        const syncRes = await fetch('/api/sync-google', {
+      // SINKRONISASI SPREADSHEET
+      if (formConfig?.spreadsheet_id) {
+        fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
-        });
-        const syncData = await syncRes.json();
-        if (!syncRes.ok) {
-           toast.error(`Spreadsheet Error: ${syncData.error}`, { duration: 6000 });
-        } else {
-           toast.success('Data Sinkron ke Spreadsheet!');
-        }
+          body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
+        }).catch(e => console.error("Sheet error:", e));
       }
 
+      toast.success('Data Berhasil Direkam!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
       
-      setFormData(resetData); setRawFiles({}); setEditingId(null);
+      setFormData(resetData); setRawFiles({});
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Gagal merekam sistem.'); } 
+    } catch (err) { toast.error('Gagal merekam data.'); } 
     finally { setIsSaving(false); }
-  };
-
-  const handleEdit = (responseItem) => {
-    setRegistrationNo(responseItem.data.nomor_registrasi || `EDIT-${responseItem.id.substring(0,4)}`);
-    setFormData(responseItem.data);
-    setEditingId(responseItem.id);
-    handleTabSwitch('input');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleRequestDelete = async (responseItem) => {
-    if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
-    const toastId = toast.loading('Mengirim permohonan...');
-    try {
-      const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
-      await supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id);
-      toast.success('Permohonan terkirim!', { id: toastId });
-      setResponses(prev => prev.map(item => item.id === responseItem.id ? { ...item, data: updatedData } : item));
-    } catch (err) { toast.error('Gagal.', { id: toastId }); }
   };
 
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
@@ -288,8 +223,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Memproses Integrasi Data...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Sinkronisasi Database & Spreadsheet Otomatis.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Dokumen Ke Drive Anda...</p>
+            <p className="text-gray-500 text-[10px] mt-2 text-center">Bypass API Script Aktif.</p>
           </div>
         </div>
       )}
@@ -297,7 +232,7 @@ export default function PublicForm() {
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-yellow-600/10 blur-[120px] rounded-full pointer-events-none"></div>
 
-      <div className="w-full max-w-6xl bg-[#0f172a]/70 backdrop-blur-3xl border border-white/10 p-4 sm:p-6 md:p-10 rounded-2xl md:rounded-[2rem] shadow-2xl relative z-10 animate-fade-in-up">
+      <div className="w-full max-w-7xl bg-[#0f172a]/70 backdrop-blur-3xl border border-white/10 p-4 sm:p-6 md:p-10 rounded-2xl md:rounded-[2rem] shadow-2xl relative z-10 animate-fade-in-up">
         
         <div className="flex flex-col mb-6 md:mb-8 border-b border-white/5 pb-4 md:pb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white uppercase tracking-tight flex items-center leading-tight"><FontAwesomeIcon icon={faFolderOpen} className="mr-3 text-primary" /> {formConfig?.title}</h1>
@@ -309,7 +244,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
           </button>
         </div>
 
@@ -318,12 +253,12 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
-              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir ini dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut verifikasi</strong> Anda pada tab Dashboard Publik.</p>
+              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut verifikasi</strong> pada tab Dashboard Publik.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5 animate-fade-in">
+            <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5 animate-fade-in max-w-5xl mx-auto">
               <div className="bg-primary/5 border border-primary/20 p-4 md:p-5 rounded-2xl flex items-center justify-between mb-4">
                 <div>
                   <div className="text-[9px] md:text-[10px] font-bold text-primary uppercase tracking-widest mb-1">NO. REGISTRASI</div>
@@ -331,22 +266,13 @@ export default function PublicForm() {
                 </div>
                 <FontAwesomeIcon icon={faIdBadge} className="text-2xl md:text-3xl text-primary/50" />
               </div>
-
-              {editingId && (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 rounded-xl text-yellow-500 text-[10px] font-bold flex justify-between items-center">
-                  <span>MENGEDIT DATA TERDAHULU</span>
-                  <button type="button" onClick={() => { setEditingId(null); setFormData({ nomor_registrasi: registrationNo }); setRawFiles({}); }} className="underline hover:text-white">Batal</button>
-                </div>
-              )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                {schema.map((field) => {
+                {/* FITUR BARU: MURNI HANYA MENAMPILKAN KOLOM YANG BUKAN MILIK VERIFIKATOR */}
+                {schema.filter(field => !field.adminLocked || field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor').map((field) => {
                   const colNameLower = field.name.toLowerCase();
                   const colLabelLower = field.label.toLowerCase();
                   const isNoField = colNameLower === 'no' || colLabelLower === 'no' || colNameLower === 'nomor';
-                  const isAdminLocked = field.adminLocked === true && !editingId;
-                  const finalLockedStatus = isAdminLocked || isNoField;
-                  
                   const isRegionField = colNameLower.includes('kabupaten') || colNameLower.includes('kecamatan') || colNameLower.includes('desa') || colNameLower.includes('kelurahan');
                   const isFile = field.type === 'file';
                   const isSelect = field.type === 'select' || isRegionField; 
@@ -356,13 +282,13 @@ export default function PublicForm() {
                     <div key={field.name} className={`flex flex-col relative group ${isFile || colNameLower.includes('keterangan') || colNameLower.includes('alasan') ? 'md:col-span-2' : ''}`}>
                       <label className="text-[10px] md:text-[11px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest flex items-center justify-between">
                         <span>{field.label}</span>
-                        {finalLockedStatus && <span className="text-[8px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faLock} className="mr-1" /> {isNoField ? 'SISTEM' : 'OTOMATIS'}</span>}
+                        {isNoField && <span className="text-[8px] font-black bg-white/10 text-white px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faLock} className="mr-1" /> SISTEM</span>}
                       </label>
                       
                       {isFile ? (
                         <div className="relative">
-                          <input type="file" onChange={(e) => handleFileChange(e, field.name)} disabled={finalLockedStatus} className="hidden" id={`file-${field.name}`}/>
-                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${finalLockedStatus ? 'bg-black/20 border-white/5 text-gray-600' : 'bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60'}`}>
+                          <input type="file" onChange={(e) => handleFileChange(e, field.name)} className="hidden" id={`file-${field.name}`}/>
+                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
                             <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
                           </label>
@@ -370,28 +296,22 @@ export default function PublicForm() {
                       ) : isSelect ? (
                         <div className="relative">
                            <select
-                              name={field.name} value={formData[field.name] || ''} onChange={(e) => handleInputChange(e, field)} disabled={finalLockedStatus}
-                              className={`w-full p-3.5 md:p-4 rounded-xl border outline-none transition-all duration-300 text-xs md:text-sm appearance-none ${finalLockedStatus ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60'}`}
-                              required={!finalLockedStatus && !editingId}
+                              name={field.name} value={formData[field.name] || ''} onChange={(e) => handleInputChange(e, field)} disabled={isNoField}
+                              className={`w-full p-3.5 md:p-4 rounded-xl border outline-none transition-all duration-300 text-xs md:text-sm appearance-none ${isNoField ? 'bg-white/5 text-gray-500 border-white/5 cursor-not-allowed' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60'}`}
+                              required={!isNoField}
                            >
                               <option value="" disabled className="bg-gray-900">-- Pilih {field.label} --</option>
                               {(() => {
                                 let selectOptions = field.options || [];
-                                
-                                if (colNameLower.includes('kabupaten')) {
-                                  selectOptions = Object.keys(DATA_WILAYAH);
-                                } else if (colNameLower.includes('kecamatan')) {
+                                if (colNameLower.includes('kabupaten')) selectOptions = Object.keys(DATA_WILAYAH);
+                                else if (colNameLower.includes('kecamatan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
-                                  const kabVal = kabKey ? formData[kabKey] : null;
-                                  if (kabVal && DATA_WILAYAH[kabVal]) selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
+                                  if (kabKey && formData[kabKey] && DATA_WILAYAH[formData[kabKey]]) selectOptions = Object.keys(DATA_WILAYAH[formData[kabKey]]);
                                 } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
                                   const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
                                   const kecKey = Object.keys(formData).find(k => k.toLowerCase().includes('kecamatan'));
-                                  const kabVal = kabKey ? formData[kabKey] : null;
-                                  const kecVal = kecKey ? formData[kecKey] : null;
-                                  if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
+                                  if (kabKey && kecKey && formData[kabKey] && formData[kecKey] && DATA_WILAYAH[formData[kabKey]][formData[kecKey]]) selectOptions = DATA_WILAYAH[formData[kabKey]][formData[kecKey]];
                                 }
-
                                 return selectOptions.map(opt => <option key={opt} value={opt} className="bg-gray-900">{opt}</option>);
                               })()}
                            </select>
@@ -401,14 +321,12 @@ export default function PublicForm() {
                         <div className="relative flex items-center">
                           {isCurrency && <span className="absolute left-4 font-bold text-xs md:text-sm text-primary">Rp.</span>}
                           <input
-                            type={isCurrency ? 'text' : field.type || 'text'}
-                            name={field.name}
-                            value={isNoField && !editingId ? (responses.length + 1) : (formData[field.name] || '')}
-                            onChange={(e) => handleInputChange(e, field)}
-                            disabled={finalLockedStatus}
+                            type={isCurrency ? 'text' : field.type || 'text'} name={field.name}
+                            value={isNoField ? (responses.length + 1) : (formData[field.name] || '')}
+                            onChange={(e) => handleInputChange(e, field)} disabled={isNoField}
                             placeholder={isCurrency ? '100.000' : `Ketik ${field.label.toLowerCase()}...`}
-                            className={`w-full p-3.5 md:p-4 rounded-xl border outline-none transition-all duration-300 text-xs md:text-sm ${isCurrency ? 'pl-10 md:pl-12' : 'pl-3.5 md:pl-4'} ${finalLockedStatus ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
-                            required={!finalLockedStatus && !editingId}
+                            className={`w-full p-3.5 md:p-4 rounded-xl border outline-none transition-all duration-300 text-xs md:text-sm ${isCurrency ? 'pl-10 md:pl-12' : 'pl-3.5 md:pl-4'} ${isNoField ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
+                            required={!isNoField}
                           />
                         </div>
                       )}
@@ -422,101 +340,59 @@ export default function PublicForm() {
             </form>
           )
         ) : (
-          <div className="space-y-3 md:space-y-4 animate-fade-in max-h-[70vh] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
-            {responses.length === 0 ? (
-              <div className="text-center p-8 bg-black/40 rounded-2xl border border-white/5"><p className="text-gray-500 text-xs md:text-sm font-medium">Belum ada data masuk di dashboard ini.</p></div>
-            ) : (
-              responses.map((res) => (
-                <div key={res.id} className="bg-black/40 border border-white/5 p-4 md:p-5 rounded-xl md:rounded-2xl flex flex-col md:flex-row md:justify-between md:items-center text-xs hover:border-white/20 transition-all duration-300 group gap-3 md:gap-4">
-                  <div>
-                    <div className="font-bold text-white uppercase text-xs sm:text-sm mb-1">{res.data.nama || `Registrasi: ${res.data.nomor_registrasi || res.id.substring(0,6)}`}</div>
-                    <div className="text-[9px] md:text-[10px] text-gray-500 font-mono">Waktu Lapor: {new Date(res.created_at).toLocaleString('id-ID')}</div>
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                    <button onClick={() => setSelectedDetail(res)} className="px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider rounded-lg md:rounded-xl text-[9px] md:text-[10px] transition-all shadow-lg flex items-center justify-center flex-1 md:flex-none">
-                      <FontAwesomeIcon icon={faSearch} className="mr-2" /> Lacak Status
-                    </button>
+          /* FITUR BARU: DASHBOARD TABEL LANGSUNG RAPI TANPA POP-UP */
+          <div className="animate-fade-in bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-white/10 mt-6">
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
+                <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
+                  <tr>
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0f172a] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
+                    {/* Render Header Warga */}
+                    {schema.filter(s => !s.adminLocked).map(col => (
+                      <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
+                    ))}
+                    {/* Render Header Verifikator dengan warna beda */}
+                    {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
+                      <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/50">
+                  {responses.length === 0 ? (
+                    <tr><td colSpan="100%" className="text-center py-10 text-gray-500 italic">Belum ada data masuk.</td></tr>
+                  ) : (
+                    responses.map((res, index) => (
+                      <tr key={res.id} className="hover:bg-white/5 transition-colors">
+                        <td className="px-5 py-4 font-bold text-primary sticky left-0 bg-[#0f172a] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">
+                          {res.data.nomor_registrasi || res.id.substring(0,6)}
+                          <div className="text-[8px] text-gray-500 mt-1 font-normal">{new Date(res.created_at).toLocaleDateString('id-ID')}</div>
+                        </td>
+                        
+                        {/* Data Warga */}
+                        {schema.filter(s => !s.adminLocked).map(col => {
+                           let val = res.data[col.name] || '-';
+                           return (
+                             <td key={col.name} className="px-5 py-4 text-gray-200">
+                               {String(val).startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Unduh</a> : val}
+                             </td>
+                           );
+                        })}
 
-                    {res.data.delete_request_status === 'pending' ? (
-                      <span className="flex-1 md:flex-none text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-yellow-500/20 text-center leading-tight">
-                        MENUNGGU HAPUS
-                      </span>
-                    ) : (
-                      <>
-                        <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 md:px-4 py-2 md:py-2.5 bg-white/10 text-white font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-white/20 transition-colors flex-1 md:flex-none flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed">
-                          <FontAwesomeIcon icon={faEdit} className="mr-2 lg:mr-2" /> <span className="md:hidden lg:inline">Edit Data</span>
-                        </button>
-                        <button onClick={() => handleRequestDelete(res)} title="Minta Hapus Data" className="px-3 md:px-4 py-2 md:py-2.5 bg-red-950/40 text-red-400 font-bold uppercase rounded-lg md:rounded-xl text-[9px] md:text-[10px] hover:bg-red-600 hover:text-white transition-colors flex-none">
-                          <FontAwesomeIcon icon={faTrash} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {selectedDetail && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
-              
-              <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
-                <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
-                <h3 className="text-lg md:text-2xl font-black text-white uppercase tracking-wider flex items-center leading-tight"><FontAwesomeIcon icon={faSearch} className="mr-2 md:mr-3 text-primary" /> Lacak Verifikasi</h3>
-                <p className="text-gray-400 text-[10px] md:text-xs mt-1">Registrasi: <span className="text-primary font-mono font-bold">{selectedDetail.data.nomor_registrasi || '-'}</span></p>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
-                  
-                  <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
-                     <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Pemohon</h4>
-                     <div className="space-y-2 md:space-y-3">
-                       {schema.filter(s => !s.adminLocked).map(col => (
-                          <div key={col.name} className="flex flex-col border-b border-white/5 pb-2">
-                             <span className="text-[8px] md:text-[9px] text-gray-500 uppercase font-bold tracking-widest">{col.label}</span>
-                             <span className="text-xs md:text-sm text-gray-200 font-semibold mt-0.5 md:mt-1 break-words">
-                               {String(selectedDetail.data[col.name] || '').startsWith('http') ? <a href={selectedDetail.data[col.name]} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Unduh Berkas Upload</a> : 
-                                String(selectedDetail.data[col.name] || '').includes('ERROR') || String(selectedDetail.data[col.name] || '').includes('GAGAL') ? <span className="text-red-400 text-[10px] bg-red-400/10 px-2 py-1 rounded">{selectedDetail.data[col.name]}</span> : (selectedDetail.data[col.name] || '-')}
-                             </span>
-                          </div>
-                       ))}
-                     </div>
-                  </div>
-
-                  <div className="space-y-3 md:space-y-4 bg-blue-900/10 p-4 md:p-5 rounded-xl md:rounded-2xl border border-blue-500/20 shadow-[0_0_20px_rgba(37,99,235,0.05)] h-fit">
-                     <h4 className="text-xs md:text-sm font-bold text-blue-400 uppercase tracking-widest border-b border-blue-500/20 pb-2 flex items-center"><FontAwesomeIcon icon={faUserShield} className="mr-2"/> Status Tindak Lanjut</h4>
-                     <div className="space-y-2 md:space-y-3">
-                       {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').length === 0 ? (
-                          <p className="text-[10px] md:text-xs text-gray-500 italic p-4 text-center">Belum ada instrumen tindak lanjut dari sistem.</p>
-                       ) : (
-                          schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
-                             const value = String(selectedDetail.data[col.name] || '').trim();
-                             return (
-                               <div key={col.name} className="flex flex-col border-b border-blue-500/10 pb-2">
-                                  <span className="text-[8px] md:text-[9px] text-blue-400 uppercase font-bold tracking-widest">{col.label}</span>
-                                  <span className="text-xs md:text-sm text-white font-black mt-0.5 md:mt-1 break-words">
-                                    {value === '' ? <span className="text-gray-500 italic text-[10px] md:text-xs font-normal">Belum Diverifikasi</span> : 
-                                      value.startsWith('http') ? <a href={value} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Lihat Dokumen</a> : value}
-                                  </span>
-                               </div>
-                             );
-                          })
-                       )}
-                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-[#0f172a] rounded-b-2xl md:rounded-b-3xl flex justify-end">
-                <button onClick={() => setSelectedDetail(null)} className="w-full md:w-auto px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition-all">
-                  <FontAwesomeIcon icon={faArrowLeft} className="mr-2"/> Tutup & Kembali
-                </button>
-              </div>
-
+                        {/* Data Verifikator */}
+                        {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => {
+                           let val = String(res.data[col.name] || '').trim();
+                           return (
+                             <td key={col.name} className="px-5 py-4 border-l border-blue-900/30 bg-blue-900/5">
+                               {val === '' ? <span className="text-gray-600 italic">Menunggu...</span> : 
+                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Berkas</a> : <span className="text-white font-black">{val}</span>}
+                             </td>
+                           );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
