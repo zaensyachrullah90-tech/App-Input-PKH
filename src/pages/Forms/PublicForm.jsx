@@ -34,7 +34,6 @@ export default function PublicForm() {
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
-  const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -109,9 +108,8 @@ export default function PublicForm() {
   const handleFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
-    // BLOCK FILE PDF/DOC YANG LEBIH DARI 700KB
-    if (!file.type.startsWith('image/') && file.size > 750 * 1024) {
-       return toast.error('Maaf, ukuran dokumen PDF maksimal 700 KB. Silakan kompres secara mandiri terlebih dahulu.');
+    if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
+       return toast.error('Maaf, dokumen PDF maksimal 3.5 MB. Kompres mandiri terlebih dahulu.');
     }
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
@@ -144,7 +142,6 @@ export default function PublicForm() {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
           
-          // SMART COMPRESSION: Target 200KB - 700KB
           let quality = 0.8;
           let base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
           while (base64.length * 0.75 > 700000 && quality > 0.1) {
@@ -161,19 +158,13 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
-    if (!formId) return toast.error('Form ID tidak terdeteksi.');
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
-
-    schema.forEach(col => {
-      if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') {
-        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
-      }
-    });
+    schema.forEach(col => { if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1); });
 
     try {
-      // 1. PROSES UPLOAD VIA PROXY (AMAN DARI CORS DAN TIMEOUT)
+      // PROSES UPLOAD VIA VERCEL PROXY (100% BEBAS DARI ERROR CORS NOTIFIKASI MERAH)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -181,28 +172,17 @@ export default function PublicForm() {
             const base64String = await compressImage(fileObject);
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                action: 'uploadFile', 
-                fileName: fileObject.name, 
-                mimeType: fileObject.type, 
-                base64Data: base64String, 
-                folderId: globalFolderId,
-                formTitle: formConfig?.title || 'Umum' 
-              })
+              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { 
-              finalData[key] = driveData.link; 
-            } else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { 
-            finalData[key] = `GAGAL UPLOAD`; 
-            toast.error(`Berkas ${key} gagal diunggah: ${err.message}`); 
-          }
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error(driveData.error || 'Server Error'); }
+          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // 2. SIMPAN KE DATABASE LOKAL
+      // SIMPAN DATABASE
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
         setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
@@ -213,7 +193,7 @@ export default function PublicForm() {
         if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
-      // 3. SINKRONISASI SPREADSHEET DAN AUTO-CREATE FOLDER
+      // BUAT SPREADSHEET OTOMATIS JIKA BELUM ADA
       let currentSheetId = formConfig?.spreadsheet_id;
       if (!currentSheetId && !editingId) {
         try {
@@ -231,25 +211,25 @@ export default function PublicForm() {
               body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
             });
           }
-        } catch (e) { console.error('Gagal buat sheet'); }
+        } catch (e) { console.error('Gagal buat sheet otomatis'); }
       }
 
+      // SINKRONISASI TEXT KE SPREADSHEET
       if (currentSheetId && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
-        }).catch(e => console.error("Sheet error:", e));
+        });
       }
 
-      toast.success('Data Formulir Anda Berhasil Terkirim!');
+      toast.success('Data Formulir Berhasil Dikirim!', { duration: 5000 });
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
-      
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Terjadi kesalahan sistem.'); } 
+    } catch (err) { toast.error('Gagal merekam data.'); } 
     finally { setIsSaving(false); }
   };
 
@@ -283,7 +263,7 @@ export default function PublicForm() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Kompresi cerdas aktif (200-700 KB).</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Auto-Folder Aktif (200-700 KB).</p>
           </div>
         </div>
       )}
@@ -303,7 +283,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Lacak
           </button>
         </div>
 
