@@ -5,9 +5,9 @@ import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, f
 import toast, { Toaster } from 'react-hot-toast';
 
 // =========================================================================
-// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
+// WAJIB GANTI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
 // =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec;
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -138,7 +138,7 @@ export default function Responses() {
       setActiveSchema(updatedSchema);
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
-      // MENG-UPDATE KOLOM DI SPREADSHEET
+      // AUTO UPDATE KOLOM SPREADSHEET (MENAMBAH KOLOM BARU DI EXCEL)
       if (formConfig?.spreadsheet_id) {
         await fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -174,7 +174,6 @@ export default function Responses() {
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
-
     setVerifyEditData(newFormData);
   };
 
@@ -213,7 +212,7 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Developer belum memasukkan URL Google Apps Script di kode!");
+    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
 
     setIsSaving(true);
     let finalData = { ...verifyEditData };
@@ -226,7 +225,7 @@ export default function Responses() {
             const base64String = await compressImage(fileObject);
             const res = await fetch(GAS_WEB_APP_URL, {
               method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Bypass CORS
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
@@ -411,6 +410,7 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
+                        // KUNCI MUTLAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
@@ -432,7 +432,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
