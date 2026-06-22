@@ -22,8 +22,9 @@ export default function Settings() {
   const [editingColName, setEditingColName] = useState(null);
   const [editColData, setEditColData] = useState({});
   
-  const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem('global_drive_folder_id') || '');
+  const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem('global_drive_folder_id') || '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop');
 
+  // MODAL CRUD ADMIN UNTUK JUDUL
   const [showEditFormModal, setShowEditFormModal] = useState(false);
   const [editFormMeta, setEditFormMeta] = useState({ title: '', description: '', spreadsheet_link: '' });
 
@@ -104,7 +105,7 @@ export default function Settings() {
       if (res.ok && googleData.spreadsheetId) {
         finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
         toast.loading('Google Sheet Terhubung. Menyimpan Database...', { id: toastId });
-      } else { throw new Error('Google Drive Bypass'); }
+      } else { throw new Error('Bypass'); }
     } catch (err) { toast.loading('Mode Database Lokal: Menyusun Form Mandiri...', { id: toastId }); }
 
     executeFormCreation(schema, finalLink, driveId, toastId);
@@ -179,7 +180,7 @@ export default function Settings() {
           const googleData = await res.json();
           if (res.ok && googleData.spreadsheetId) {
             finalLink = googleData.spreadsheetUrl; driveId = googleData.spreadsheetId;
-          } else { throw new Error('Google Bypass'); }
+          } else { throw new Error('Bypass'); }
         } catch (err) { toast.loading('Mode Database Lokal...', { id: toastId }); }
         executeFormCreation(generatedSchema, finalLink, driveId, toastId);
       }
@@ -198,6 +199,15 @@ export default function Settings() {
     setNewColumn({ name: '', label: '', type: 'text', defaultValue: '', options: '' });
     toast.success('Kolom ditambahkan!');
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
+    
+    // UPDATE SPREADSHEET HEADERS
+    const config = forms.find(f => f.id === selectedFormId);
+    if (config?.spreadsheet_id) {
+       await fetch('/api/sync-google', {
+         method: 'POST', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
+       });
+    }
     fetchForms();
   };
 
@@ -207,6 +217,14 @@ export default function Settings() {
     setActiveSchema(updatedSchema);
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
     toast.success('Kolom dihapus.');
+    
+    const config = forms.find(f => f.id === selectedFormId);
+    if (config?.spreadsheet_id) {
+       await fetch('/api/sync-google', {
+         method: 'POST', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
+       });
+    }
     fetchForms();
   };
 
@@ -222,6 +240,14 @@ export default function Settings() {
     setEditingColName(null);
     toast.success('Perubahan kolom disimpan!');
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
+    
+    const config = forms.find(f => f.id === selectedFormId);
+    if (config?.spreadsheet_id) {
+       await fetch('/api/sync-google', {
+         method: 'POST', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
+       });
+    }
     fetchForms();
   };
 
@@ -291,7 +317,7 @@ export default function Settings() {
                 <textarea value={editFormMeta.description} onChange={e => setEditFormMeta({...editFormMeta, description: e.target.value})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary h-24 resize-none" required />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Link Tautan Google Sheet (Opsional)</label>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Link Tautan Google Sheet</label>
                 <input type="text" value={editFormMeta.spreadsheet_link || ''} onChange={e => setEditFormMeta({...editFormMeta, spreadsheet_link: e.target.value})} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none focus:border-primary text-blue-400 font-mono" />
               </div>
               <button type="submit" className="w-full bg-primary hover:bg-yellow-500 text-black font-black py-4 rounded-xl uppercase tracking-widest mt-4">Simpan Perubahan Info</button>
@@ -431,7 +457,6 @@ export default function Settings() {
                     <td className="p-5 font-bold text-gray-200">{f.title}</td>
                     <td className="p-5 text-center"><button type="button" onClick={() => handleToggleStatus(f.id, isActive)} className={`px-3 py-1.5 text-[10px] font-black rounded border ${isActive ? 'text-green-400 border-green-500/20 hover:bg-green-900/40' : 'text-red-400 border-red-500/20 hover:bg-red-900/40'}`}>{isActive ? 'OPEN' : 'CLOSED'}</button></td>
                     
-                    {/* TOMBOL DISTRIBUSI BARU (FORM VS DASHBOARD) */}
                     <td className="p-3 text-center">
                       <div className="flex flex-col space-y-2 max-w-[150px] mx-auto">
                         <button type="button" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success('Link Form Publik disalin!'); }} className="px-3 py-1.5 bg-primary hover:bg-yellow-500 text-darker font-bold rounded-lg text-[9px] uppercase tracking-widest w-full">Copy Form Input</button>
