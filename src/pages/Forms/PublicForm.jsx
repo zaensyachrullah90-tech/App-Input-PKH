@@ -3,7 +3,12 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+
+// =========================================================================
+// GANTI DENGAN URL GOOGLE APPS SCRIPT ANDA
+// =========================================================================
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -158,6 +163,7 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
+    if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
@@ -169,6 +175,7 @@ export default function PublicForm() {
     });
 
     try {
+      // PROSES UPLOAD VIA VERCEL PROXY (ANTI CORS)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -197,7 +204,7 @@ export default function PublicForm() {
         if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
-      // BACKGROUND SYNC KE SPREADSHEET MENGGUNAKAN API (APPEND/UPDATE)
+      // SINKRONISASI KE SPREADSHEET (MENUNGGU RESPON JUJUR)
       let currentSheetId = formConfig?.spreadsheet_id;
       if (!currentSheetId && !editingId) {
         try {
@@ -219,19 +226,25 @@ export default function PublicForm() {
       }
 
       if (currentSheetId) {
-        fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-             action: editingId ? 'updateRow' : 'appendRow', 
-             spreadsheetId: currentSheetId, 
-             nomor_registrasi: finalData.nomor_registrasi,
-             schema: schema, 
-             rowData: finalData 
-          })
-        });
+        try {
+           const sheetRes = await fetch('/api/sync-google', {
+             method: 'POST', headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ 
+                action: editingId ? 'updateRow' : 'appendRow', 
+                spreadsheetId: currentSheetId, 
+                nomor_registrasi: finalData.nomor_registrasi,
+                schema: schema, 
+                rowData: finalData 
+             })
+           });
+           const sheetData = await sheetRes.json();
+           if(!sheetRes.ok || sheetData.error) throw new Error(sheetData.error);
+        } catch(err) {
+           toast.error(`Spreadsheet Gagal: ${err.message}`, { duration: 5000 });
+        }
       }
 
-      toast.success('Data Berhasil Dikirim dan Tersinkronisasi!');
+      toast.success('Data Formulir Berhasil Dikirim!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
@@ -239,7 +252,7 @@ export default function PublicForm() {
       
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Gagal merekam data.'); } 
+    } catch (err) { toast.error('Terjadi kesalahan sistem.'); } 
     finally { setIsSaving(false); }
   };
 
@@ -273,7 +286,7 @@ export default function PublicForm() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
-            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Bypass API Aktif (200-700 KB).</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Auto-Folder Aktif (200-700 KB).</p>
           </div>
         </div>
       )}
@@ -316,6 +329,7 @@ export default function PublicForm() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                {/* HANYA MENAMPILKAN DATA WARGA YANG BUKAN MILIK VERIFIKATOR */}
                 {schema.filter(field => !field.adminLocked || field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor').map((field) => {
                   const colNameLower = field.name.toLowerCase();
                   const colLabelLower = field.label.toLowerCase();
@@ -399,7 +413,6 @@ export default function PublicForm() {
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
-                    <th className="px-5 py-4 font-black text-red-400 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">Aksi Pemohon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
@@ -432,22 +445,6 @@ export default function PublicForm() {
                              </td>
                            );
                         })}
-
-                        {/* TOMBOL EDIT/HAPUS WARGA TERKUNCI AMAN */}
-                        <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
-                           {res.data.delete_request_status === 'pending' ? (
-                             <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
-                           ) : (
-                             <div className="flex justify-center space-x-2">
-                               <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 py-1.5 bg-white/10 text-white font-bold rounded hover:bg-white/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                 <FontAwesomeIcon icon={faEdit} />
-                               </button>
-                               <button onClick={() => handleRequestDelete(res)} className="px-3 py-1.5 bg-red-950/40 text-red-400 font-bold rounded hover:bg-red-600 hover:text-white transition-colors">
-                                 <FontAwesomeIcon icon={faTrash} />
-                               </button>
-                             </div>
-                           )}
-                        </td>
                       </tr>
                     ))
                   )}
