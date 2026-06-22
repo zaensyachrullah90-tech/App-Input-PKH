@@ -4,11 +4,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
-// =========================================================================
-// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA
-// =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
-
 const DATA_WILAYAH = {
   "TAPIN": {
     "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
@@ -53,12 +48,9 @@ export default function Responses() {
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => { 
-    fetchForms(); 
-    checkRole();
-  }, []);
-
+  useEffect(() => { fetchForms(); checkRole(); }, []);
   useEffect(() => { if (selectedFormId) fetchResponses(selectedFormId); }, [selectedFormId]);
 
   const checkRole = async () => {
@@ -93,11 +85,13 @@ export default function Responses() {
     localStorage.setItem('smart_export_meta_cache', JSON.stringify(updatedMeta));
   };
 
+  // =========================================================================
+  // OPTIMISTIC DELETE: UI HILANG INSTAN, DRIVE & SPREADSHEET DIHAPUS OTOMATIS
+  // =========================================================================
   const handleAdminDelete = async (id) => {
     if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
     if (!window.confirm('Hapus arsip ini secara permanen? Data di Google Sheet & Drive juga akan dihancurkan.')) return;
     
-    // OPTIMISTIC DELETE UI INSTANT
     const recordToDelete = responses.find(r => r.id === id);
     setResponses(prev => prev.filter(r => r.id !== id));
     toast.success('Data berhasil dihapus dari sistem!');
@@ -105,7 +99,6 @@ export default function Responses() {
     try {
       await supabase.from('form_responses').delete().eq('id', id);
 
-      // KUMPULKAN URL FILE UNTUK DIHAPUS DARI DRIVE
       const fileUrls = [];
       activeSchema.forEach(col => {
         if (col.type === 'file' && recordToDelete.data[col.name]?.startsWith('http')) {
@@ -113,7 +106,6 @@ export default function Responses() {
         }
       });
 
-      // BACKGROUND DELETE SPREADSHEET & DRIVE
       if (formConfig?.spreadsheet_id) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -237,13 +229,11 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
-
     const toastId = toast.loading('Menyiapkan Pembaruan...');
     let finalData = { ...verifyEditData };
 
     try {
-      // PROSES UPLOAD PARALEL
+      // 1. UPLOAD FILE PARALEL
       const uploadPromises = Object.keys(rawVerifyFiles).map(async (key) => {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
@@ -256,7 +246,7 @@ export default function Responses() {
             const driveData = await res.json();
             if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; }
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
         }
       });
       await Promise.all(uploadPromises);
@@ -267,7 +257,7 @@ export default function Responses() {
       setShowVerifyModal(false);
       setRawVerifyFiles({});
 
-      // BACKGROUND SYNC KE SUPABASE & SPREADSHEET
+      // BACKGROUND SYNC KE SUPABASE & SPREADSHEET (UPDATE ROW SPREADSHEET)
       (async () => {
         try {
           await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
@@ -501,7 +491,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
@@ -610,9 +600,11 @@ export default function Responses() {
                         <FontAwesomeIcon icon={faUserShield} className="md:mr-2" /> <span className="hidden md:inline">Tindak Lanjut</span>
                       </button>
 
-                      {res.data.delete_request_status === 'pending' ? (
-                        <><span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse hidden sm:inline">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2 md:px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
-                      ) : <button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[9px] md:text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>}
+                      {!isVerifikator && (
+                        res.data.delete_request_status === 'pending' ? (
+                          <><span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse hidden sm:inline">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2 md:px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
+                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[9px] md:text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
