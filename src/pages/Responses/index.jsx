@@ -4,6 +4,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
+// =========================================================================
+// URL GOOGLE APPS SCRIPT (JANGAN DIUBAH, SUDAH TERKUNCI AMAN)
+// =========================================================================
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+
 const DATA_WILAYAH = {
   "TAPIN": {
     "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
@@ -33,11 +38,11 @@ export default function Responses() {
   const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState('lengkap'); // FITUR BARU: 2 Opsi Cetak
+
   const [exportMeta, setExportMeta] = useState(() => {
     const cachedMeta = localStorage.getItem('smart_export_meta_cache');
-    return cachedMeta ? JSON.parse(cachedMeta) : {
-      noSurat: '', jabatan: 'Koordinator Kabupaten PKH', nama: '', nik: ''
-    };
+    return cachedMeta ? JSON.parse(cachedMeta) : { noSurat: '', jabatan: 'Koordinator Kabupaten PKH', nama: '', nik: '' };
   });
 
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -88,7 +93,7 @@ export default function Responses() {
   };
 
   const handleAdminDelete = async (id) => {
-    if (isVerifikator) return toast.error('Akses Ditolak.');
+    if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
     if (!window.confirm('Hapus arsip ini secara permanen?')) return;
     try {
       await supabase.from('form_responses').delete().eq('id', id);
@@ -134,8 +139,8 @@ export default function Responses() {
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
       if (formConfig?.spreadsheet_id) {
-        await fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await fetch(GAS_WEB_APP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
         });
       }
@@ -206,31 +211,42 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
+    if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
+
     setIsSaving(true);
     let finalData = { ...verifyEditData };
 
     try {
+      // PROSES UPLOAD VIA GOOGLE APPS SCRIPT BYPASS
       const uploadPromises = Object.keys(rawVerifyFiles).map(async (key) => {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const res = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error('Server Error'); }
+            if(driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error(driveData.error || 'Server Error'); }
           } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
         }
       });
-
       await Promise.all(uploadPromises);
 
+      // SIMPAN KE SUPABASE
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
       
-      toast.success('Hasil Verifikasi Berhasil Diamankan!');
+      // SINKRONISASI KE GOOGLE SHEET (Tembak Baris Tindak Lanjut ke Spreadsheet)
+      if (formConfig?.spreadsheet_id) {
+         fetch(GAS_WEB_APP_URL, {
+            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: activeSchema, rowData: finalData })
+         }).catch(e => console.error(e));
+      }
+
+      toast.success('Hasil Verifikasi Berhasil Disimpan & Tersinkronisasi ke Spreadsheet!');
       setResponses(prev => prev.map(item => item.id === verifyData.id ? { ...item, data: finalData } : item));
       setShowVerifyModal(false);
       setRawVerifyFiles({});
@@ -238,44 +254,66 @@ export default function Responses() {
     finally { setIsSaving(false); }
   };
 
-  // =================================================================================
-  // FITUR MUTLAK: EXPORT HANYA KOLOM BAWAAN AWAL YANG RAPI, TANPA KOLOM VERIFIKATOR
-  // =================================================================================
+  // =========================================================================
+  // FITUR MUTLAK: EXCEL RAPI BERGARIS (XLS) DENGAN KONDISI 2 OPSI CETAK
+  // =========================================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
-    const headerMetadata = [['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`], ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`], [] ];
-    
-    const exportSchema = activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor');
-    const tableHeaders = exportSchema.map(col => col.label);
+    // Filter Schema Sesuai Opsi Cetak (Lengkap / Hanya Lampiran)
+    const exportSchema = exportType === 'lampiran' 
+      ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
+      : activeSchema;
+
     const reversedResponses = [...responses].reverse();
 
-    const csvData = reversedResponses.map((res, index) => {
-      const row = [];
-      exportSchema.forEach(col => {
+    // RAKIT HTML KE EXCEL (.xls) AGAR SANGAT RAPI
+    const tableHeadersHTML = exportSchema.map(col => `<th style="background-color: #f3f4f6; border: 1px solid #000; padding: 8px; font-weight: bold; text-transform: uppercase;">${col.label}</th>`).join('');
+
+    const tableRowsHTML = reversedResponses.map((res, index) => {
+      return `<tr>${exportSchema.map(col => {
         const colNameLower = col.name.toLowerCase();
-        if (colNameLower === 'no' || colNameLower === 'nomor') { row.push(index + 1); } 
-        else {
-          let cellValue = res.data[col.name] || '-';
-          if (typeof cellValue === 'string') {
-            cellValue = cellValue.replace(/"/g, '""');
-            if (cellValue.includes(',') || cellValue.includes('\n')) cellValue = `"${cellValue}"`;
-          }
-          row.push(cellValue);
-        }
-      });
-      return row;
-    });
+        let val = res.data[col.name] || '-';
+        if (colNameLower === 'no' || colNameLower === 'nomor') val = index + 1;
+        return `<td style="border: 1px solid #000; padding: 5px;">${val}</td>`;
+      }).join('')}</tr>`;
+    }).join('');
 
-    const emptyPadding = Array(Math.max(1, tableHeaders.length - 2)).fill(''); 
-    const footerMetadata = [[], [], [...emptyPadding, 'MENGETAHUI,'], [...emptyPadding, `="${exportMeta.jabatan}"`], [], [], [], [...emptyPadding, `="${exportMeta.nama}"`], [...emptyPadding, `="NIK/NIP. ${exportMeta.nik}"`]];
+    const excelHTML = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <tr><td colspan="${exportSchema.length}" style="font-size: 14px; font-weight: bold; text-align: center;">DATA ${formTitle.toUpperCase()}</td></tr>
+          <tr><td colspan="${exportSchema.length}" style="text-align: center;">LAMPIRAN NOMOR: ${exportMeta.noSurat.toUpperCase()}</td></tr>
+          <tr><td colspan="${exportSchema.length}"></td></tr>
+          <tr>${tableHeadersHTML}</tr>
+          ${tableRowsHTML}
+          <tr><td colspan="${exportSchema.length}"></td></tr>
+          <tr>
+            <td colspan="${Math.max(1, exportSchema.length - 2)}"></td>
+            <td colspan="2" style="text-align: center;">
+              MENGETAHUI,<br/><br/><br/><br/>
+              <b>${exportMeta.jabatan}</b><br/>
+              <u>${exportMeta.nama || '-'}</u><br/>
+              NIK/NIP. ${exportMeta.nik || '-'}
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
 
-    const csvContent = [...headerMetadata.map(e => e.join(',')), tableHeaders.join(','), ...csvData.map(e => e.join(',')), ...footerMetadata.map(e => e.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + excelHTML], { type: 'application/vnd.ms-excel' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `Lampiran_Excel_${formTitle}.csv`;
+    link.download = `Laporan_Excel_${formTitle}.xls`;
     link.click();
     setShowExportModal(false);
   };
@@ -286,14 +324,18 @@ export default function Responses() {
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    const exportSchema = activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor');
-    const tableHeadersHTML = exportSchema.map(col => `<th style="padding: 8px; border: 1px solid #000; text-align: left; background-color: #f3f4f6;">${col.label}</th>`).join('');
+    // Filter Schema Sesuai Opsi Cetak
+    const exportSchema = exportType === 'lampiran' 
+      ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
+      : activeSchema;
+
+    const tableHeadersHTML = exportSchema.map(col => `<th>${col.label}</th>`).join('');
     const tableRowsHTML = reversedResponses.map((res, index) => {
       return `<tr>${exportSchema.map(col => {
             const colNameLower = col.name.toLowerCase();
             let val = res.data[col.name] || '-';
             if (colNameLower === 'no' || colNameLower === 'nomor') val = index + 1;
-            return `<td style="padding: 7px; border: 1px solid #000;">${val}</td>`;
+            return `<td>${val}</td>`;
           }).join('')}</tr>`;
     }).join('');
 
@@ -306,6 +348,8 @@ export default function Responses() {
           .meta-info table { width: auto; border: none; margin: 0; }
           .meta-info td { padding: 4px 10px 4px 0; border: none; font-weight: bold; text-transform: uppercase; }
           table.data-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }
+          table.data-table th { background: #f3f4f6; border: 1px solid #000; padding: 8px; text-align: left; text-transform: uppercase; font-weight: bold; }
+          table.data-table td { border: 1px solid #000; padding: 7px; text-transform: uppercase; }
           .ttd-block { margin-top: 40px; float: right; text-align: left; min-width: 260px; font-size: 13px; page-break-inside: avoid; }
           .ttd-space { height: 70px; }
           .clear { clear: both; }
@@ -331,31 +375,51 @@ export default function Responses() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif mengamankan file.</p>
+            <p className="text-gray-500 text-[10px] mt-2">Sinkronisasi dokumen ke Drive sedang berjalan.</p>
           </div>
         </div>
       )}
 
+      {/* ======================================================== */}
+      {/* MODAL CONFIG EXPORT DENGAN DUA OPSI CETAK YANG RAPI */}
+      {/* ======================================================== */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
             <button onClick={() => setShowExportModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
             <h3 className="text-xl font-black text-white uppercase tracking-wider mb-1 flex items-center"><FontAwesomeIcon icon={faPrint} className="mr-3 text-primary" /> Konfigurasi Lampiran</h3>
             <p className="text-gray-400 text-xs mb-6 border-b border-white/5 pb-4">Data di bawah ini akan diingat otomatis oleh sistem memori browser (Cache).</p>
+            
             <div className="space-y-4">
+              <div className="bg-black/30 p-4 rounded-xl border border-white/10 mb-2">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-3">Tipe Cetak Dokumen</label>
+                <div className="flex flex-col md:flex-row gap-4">
+                  <label className="flex items-center space-x-2 text-xs text-white cursor-pointer hover:text-primary transition-colors">
+                    <input type="radio" value="lampiran" checked={exportType === 'lampiran'} onChange={() => setExportType('lampiran')} className="accent-primary w-4 h-4" />
+                    <span className="font-semibold">Bentuk Lampiran (Hanya Isian Warga)</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-xs text-white cursor-pointer hover:text-primary transition-colors">
+                    <input type="radio" value="lengkap" checked={exportType === 'lengkap'} onChange={() => setExportType('lengkap')} className="accent-primary w-4 h-4" />
+                    <span className="font-semibold">Laporan Penuh (+ Kolom Verifikator)</span>
+                  </label>
+                </div>
+              </div>
+
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Nomor Lampiran</label><input type="text" value={exportMeta.noSurat} onChange={e => handleMetaChange('noSurat', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none uppercase font-semibold" /></div>
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Jabatan TTD</label><input type="text" value={exportMeta.jabatan} onChange={e => handleMetaChange('jabatan', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Nama TTD</label><input type="text" value={exportMeta.nama} onChange={e => handleMetaChange('nama', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">NIK/NIP TTD</label><input type="number" value={exportMeta.nik} onChange={e => handleMetaChange('nik', e.target.value)} className="w-full p-3.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm outline-none font-semibold" /></div>
             </div>
-            <div className="grid grid-cols-2 gap-4 mt-8">
-              <button onClick={handleExportExcel} className="p-4 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon={faFileExcel} size="lg" /> Excel</button>
-              <button onClick={handleExportPDF} className="p-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2"><FontAwesomeIcon icon={faFilePdf} size="lg" /> PDF</button>
+            
+            <div className="grid grid-cols-2 gap-4 mt-8 border-t border-white/5 pt-6">
+              <button onClick={handleExportExcel} className="p-4 bg-green-600 hover:bg-green-500 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(22,163,74,0.3)] transition-all"><FontAwesomeIcon icon={faFileExcel} size="lg" /> Cetak Excel Rapi</button>
+              <button onClick={handleExportPDF} className="p-4 bg-red-600 hover:bg-red-500 text-white font-black rounded-xl uppercase text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(220,38,38,0.3)] transition-all"><FontAwesomeIcon icon={faFilePdf} size="lg" /> Cetak PDF</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* RUANG VERIFIKATOR FULL SCREEN */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
           <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up overflow-hidden">
@@ -405,6 +469,7 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
+                        // KUNCI MULTAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
@@ -426,7 +491,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
