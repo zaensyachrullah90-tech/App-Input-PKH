@@ -5,9 +5,9 @@ import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, f
 import toast, { Toaster } from 'react-hot-toast';
 
 // =========================================================================
-// WAJIB GANTI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
+// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
 // =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec;
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -138,7 +138,7 @@ export default function Responses() {
       setActiveSchema(updatedSchema);
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
-      // AUTO UPDATE KOLOM SPREADSHEET (MENAMBAH KOLOM BARU DI EXCEL)
+      // AUTO UPDATE KOLOM SPREADSHEET
       if (formConfig?.spreadsheet_id) {
         await fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -174,6 +174,7 @@ export default function Responses() {
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
+
     setVerifyEditData(newFormData);
   };
 
@@ -212,7 +213,7 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
+    if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
 
     setIsSaving(true);
     let finalData = { ...verifyEditData };
@@ -361,6 +362,7 @@ export default function Responses() {
         </div>
       )}
 
+      {/* RUANG VERIFIKATOR - FULL SCREEN DESKTOP DAN FULL RESPONSIVE FIX */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
           <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up overflow-hidden">
@@ -410,7 +412,7 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MUTLAK: Pemohon data tidak bisa diedit Verifikator
+                        // KUNCI MULTAK: Verifikator tidak bisa mengedit data pemohon
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
