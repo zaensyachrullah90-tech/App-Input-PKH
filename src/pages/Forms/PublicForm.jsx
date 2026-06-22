@@ -3,10 +3,11 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faUpload, faIdBadge, faChevronDown, faDownload } from '@fortawesome/free-solid-svg-icons';
+// ERROR faUserShield SUDAH DIBASMI DI SINI:
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload } from '@fortawesome/free-solid-svg-icons';
 
 // =========================================================================
-// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
+// WAJIB GANTI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
 // =========================================================================
 const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
 
@@ -37,6 +38,7 @@ export default function PublicForm() {
   const [formConfig, setFormConfig] = useState(null);
   
   const [activeTab, setActiveTab] = useState('input');
+  const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
@@ -156,19 +158,19 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     if (!formId) return toast.error('Form ID tidak terdeteksi.');
-    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Developer belum memasukkan URL Google Apps Script di kode!");
+    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
       if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') {
-        finalData[col.name] = (responses.length + 1);
+        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
       }
     });
 
     try {
-      // PROSES UPLOAD BYPASS KE GOOGLE APPS SCRIPT
+      // 1. PROSES UPLOAD BYPASS (TIDAK AKAN TERKENA LIMIT QUOTA 0 GB)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -176,24 +178,29 @@ export default function PublicForm() {
             const base64String = await compressImage(fileObject);
             const res = await fetch(GAS_WEB_APP_URL, {
               method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Wajib text/plain untuk bypass CORS GAS
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
             if(driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas ${key} gagal: ${err.message}`); }
+          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // SIMPAN DATABASE
-      const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
-      const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
-      const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
-      if (insertedData) setResponses(prev => [insertedData, ...prev]);
+      // 2. SIMPAN KE DATABASE (REALTIME)
+      if (editingId) {
+        await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
+        setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
+      } else {
+        const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+        const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
+        const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
+        if (insertedData) setResponses(prev => [insertedData, ...prev]);
+      }
 
-      // SINKRONISASI SPREADSHEET
+      // 3. SINKRONISASI TEXT KE SPREADSHEET (MENGGUNAKAN SERVICE ACCOUNT VERCEL KARENA AMAN)
       if (formConfig?.spreadsheet_id) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -207,7 +214,9 @@ export default function PublicForm() {
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
       
-      setFormData(resetData); setRawFiles({});
+      setFormData(resetData); setRawFiles({}); setEditingId(null);
+      
+      // AUTO PINDAH KE TAB DASHBOARD HASIL
       handleTabSwitch('results'); 
     } catch (err) { toast.error('Gagal merekam data.'); } 
     finally { setIsSaving(false); }
@@ -223,7 +232,7 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Dokumen Ke Drive Anda...</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Cloud...</p>
             <p className="text-gray-500 text-[10px] mt-2 text-center">Bypass API Script Aktif.</p>
           </div>
         </div>
@@ -244,7 +253,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
           </button>
         </div>
 
@@ -253,7 +262,6 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
-              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut verifikasi</strong> pada tab Dashboard Publik.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
@@ -268,7 +276,7 @@ export default function PublicForm() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                {/* FITUR BARU: MURNI HANYA MENAMPILKAN KOLOM YANG BUKAN MILIK VERIFIKATOR */}
+                {/* FITUR MUTLAK: Menyembunyikan kolom verifikator di form input warga */}
                 {schema.filter(field => !field.adminLocked || field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor').map((field) => {
                   const colNameLower = field.name.toLowerCase();
                   const colLabelLower = field.label.toLowerCase();
@@ -340,18 +348,20 @@ export default function PublicForm() {
             </form>
           )
         ) : (
-          /* FITUR BARU: DASHBOARD TABEL LANGSUNG RAPI TANPA POP-UP */
-          <div className="animate-fade-in bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-white/10 mt-6">
+          /* ========================================================================= */
+          /* FITUR MUTLAK BARU: TABEL LANGSUNG MEMANJANG RAPI TANPA POP UP / KLIK LAGI */
+          /* ========================================================================= */
+          <div className="animate-fade-in bg-[#0f172a] rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-white/10 mt-4 md:mt-6">
             <div className="overflow-x-auto custom-scrollbar">
               <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
                 <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
                   <tr>
-                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0f172a] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
-                    {/* Render Header Warga */}
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
+                    {/* Header Warga */}
                     {schema.filter(s => !s.adminLocked).map(col => (
                       <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
                     ))}
-                    {/* Render Header Verifikator dengan warna beda */}
+                    {/* Header Verifikator dengan highlight biru */}
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
@@ -361,9 +371,9 @@ export default function PublicForm() {
                   {responses.length === 0 ? (
                     <tr><td colSpan="100%" className="text-center py-10 text-gray-500 italic">Belum ada data masuk.</td></tr>
                   ) : (
-                    responses.map((res, index) => (
+                    responses.map((res) => (
                       <tr key={res.id} className="hover:bg-white/5 transition-colors">
-                        <td className="px-5 py-4 font-bold text-primary sticky left-0 bg-[#0f172a] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">
+                        <td className="px-5 py-4 font-bold text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">
                           {res.data.nomor_registrasi || res.id.substring(0,6)}
                           <div className="text-[8px] text-gray-500 mt-1 font-normal">{new Date(res.created_at).toLocaleDateString('id-ID')}</div>
                         </td>
@@ -373,7 +383,8 @@ export default function PublicForm() {
                            let val = res.data[col.name] || '-';
                            return (
                              <td key={col.name} className="px-5 py-4 text-gray-200">
-                               {String(val).startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Unduh</a> : val}
+                               {String(val).startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-primary hover:text-yellow-400 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Unduh Berkas</a> : 
+                                String(val).includes('GAGAL') ? <span className="text-red-400 bg-red-400/10 px-2 py-1 rounded">GAGAL UPLOAD</span> : val}
                              </td>
                            );
                         })}
@@ -384,7 +395,7 @@ export default function PublicForm() {
                            return (
                              <td key={col.name} className="px-5 py-4 border-l border-blue-900/30 bg-blue-900/5">
                                {val === '' ? <span className="text-gray-600 italic">Menunggu...</span> : 
-                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Berkas</a> : <span className="text-white font-black">{val}</span>}
+                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Berkas Tinjauan</a> : <span className="text-white font-black">{val}</span>}
                              </td>
                            );
                         })}
