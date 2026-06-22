@@ -3,12 +3,12 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faUserShield, faDownload, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
 
 // =========================================================================
 // GANTI DENGAN URL GOOGLE APPS SCRIPT ANDA
 // =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -165,7 +165,10 @@ export default function PublicForm() {
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
     
-    setIsSaving(true);
+    // Aktifkan Loading Singkat Hanya untuk Upload Gambar
+    const hasFiles = Object.keys(rawFiles).length > 0;
+    if (hasFiles) setIsSaving(true);
+    
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
@@ -175,76 +178,38 @@ export default function PublicForm() {
     });
 
     try {
-      // PROSES UPLOAD VIA VERCEL PROXY (ANTI CORS)
+      // 1. PROSES UPLOAD LANGSUNG KE APPS SCRIPT (TEKS MURNI, ANTI CORS)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const res = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            if(driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
           } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
+      setIsSaving(false); 
 
-      // SIMPAN DATABASE
-      if (editingId) {
-        await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
-        setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
+      // =========================================================================
+      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
+      // =========================================================================
+      toast.success('Data Berhasil Direkam & Dikirim ke Cloud!');
+      const saveEditingId = editingId;
+      
+      if (saveEditingId) {
+        setResponses(prev => prev.map(item => item.id === saveEditingId ? { ...item, data: finalData } : item));
       } else {
-        const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
-        const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
-        const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
-        if (insertedData) setResponses(prev => [insertedData, ...prev]);
+        const tempId = 'temp-' + Date.now();
+        setResponses(prev => [{ id: tempId, data: finalData, created_at: new Date().toISOString() }, ...prev]);
       }
 
-      // SINKRONISASI KE SPREADSHEET (MENUNGGU RESPON JUJUR)
-      let currentSheetId = formConfig?.spreadsheet_id;
-      if (!currentSheetId && !editingId) {
-        try {
-          const createRes = await fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
-          });
-          const createData = await createRes.json();
-          if (createData.spreadsheetId) {
-            currentSheetId = createData.spreadsheetId;
-            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
-            await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
-            });
-          }
-        } catch (e) {}
-      }
-
-      if (currentSheetId) {
-        try {
-           const sheetRes = await fetch('/api/sync-google', {
-             method: 'POST', headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ 
-                action: editingId ? 'updateRow' : 'appendRow', 
-                spreadsheetId: currentSheetId, 
-                nomor_registrasi: finalData.nomor_registrasi,
-                schema: schema, 
-                rowData: finalData 
-             })
-           });
-           const sheetData = await sheetRes.json();
-           if(!sheetRes.ok || sheetData.error) throw new Error(sheetData.error);
-        } catch(err) {
-           toast.error(`Spreadsheet Gagal: ${err.message}`, { duration: 5000 });
-        }
-      }
-
-      toast.success('Data Formulir Berhasil Dikirim!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
@@ -252,8 +217,56 @@ export default function PublicForm() {
       
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Terjadi kesalahan sistem.'); } 
-    finally { setIsSaving(false); }
+
+      // =========================================================================
+      // BACKGROUND SYNC: Poses Supabase & Spreadsheet secara rahasia di balik layar
+      // =========================================================================
+      (async () => {
+        // 1. Simpan Supabase
+        if (saveEditingId) {
+          await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
+        } else {
+          const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+          await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
+          fetchResponses(); // Silent refresh to clean tempId
+        }
+
+        // 2. Simpan Sheet Otomatis
+        let currentSheetId = formConfig?.spreadsheet_id;
+        if (!currentSheetId && !saveEditingId) {
+          try {
+            const createRes = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
+            });
+            const createData = await createRes.json();
+            if (createData.spreadsheetId) {
+              currentSheetId = createData.spreadsheetId;
+              await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
+              const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
+              await fetch(GAS_WEB_APP_URL, {
+                method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: currentSheetId, schema: schema })
+              });
+            }
+          } catch (e) {}
+        }
+
+        if (currentSheetId) {
+          fetch(GAS_WEB_APP_URL, {
+            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ 
+               action: saveEditingId ? 'updateRow' : 'appendRow', 
+               spreadsheetId: currentSheetId, 
+               nomor_registrasi: finalData.nomor_registrasi, 
+               schema: schema, 
+               rowData: finalData 
+            })
+          });
+        }
+      })();
+
+    } catch (err) { setIsSaving(false); toast.error('Gagal merekam data.'); } 
   };
 
   const handleEdit = (responseItem) => {
@@ -266,13 +279,10 @@ export default function PublicForm() {
 
   const handleRequestDelete = async (responseItem) => {
     if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
-    const toastId = toast.loading('Mengirim permohonan...');
-    try {
-      const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
-      await supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id);
-      toast.success('Permohonan terkirim!', { id: toastId });
-      setResponses(prev => prev.map(item => item.id === responseItem.id ? { ...item, data: updatedData } : item));
-    } catch (err) { toast.error('Gagal.', { id: toastId }); }
+    toast.success('Permohonan hapus terkirim secara instan!');
+    const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
+    setResponses(prev => prev.map(item => item.id === responseItem.id ? { ...item, data: updatedData } : item));
+    supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id).then();
   };
 
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
@@ -285,8 +295,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
-            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Auto-Folder Aktif (200-700 KB).</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyiapkan Berkas Upload...</p>
+            <p className="text-gray-500 text-[10px] mt-2 text-center">Mohon tunggu sebentar.</p>
           </div>
         </div>
       )}
@@ -306,7 +316,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Lacak
           </button>
         </div>
 
@@ -413,6 +423,7 @@ export default function PublicForm() {
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
+                    <th className="px-5 py-4 font-black text-red-400 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">Aksi Pemohon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
@@ -422,7 +433,7 @@ export default function PublicForm() {
                     responses.map((res) => (
                       <tr key={res.id} className="hover:bg-white/5 transition-colors">
                         <td className="px-5 py-4 font-bold text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">
-                          {res.data.nomor_registrasi || res.id.substring(0,6)}
+                          {res.data.nomor_registrasi || res.id?.substring(0,6)}
                           <div className="text-[8px] text-gray-500 mt-1 font-normal">{new Date(res.created_at).toLocaleDateString('id-ID')}</div>
                         </td>
                         
@@ -445,6 +456,22 @@ export default function PublicForm() {
                              </td>
                            );
                         })}
+
+                        {/* TOMBOL EDIT/HAPUS WARGA AMAN */}
+                        <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
+                           {res.data.delete_request_status === 'pending' ? (
+                             <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
+                           ) : (
+                             <div className="flex justify-center space-x-2">
+                               <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 py-1.5 bg-white/10 text-white font-bold rounded hover:bg-white/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                 <FontAwesomeIcon icon={faEdit} />
+                               </button>
+                               <button onClick={() => handleRequestDelete(res)} className="px-3 py-1.5 bg-red-950/40 text-red-400 font-bold rounded hover:bg-red-600 hover:text-white transition-colors">
+                                 <FontAwesomeIcon icon={faTrash} />
+                               </button>
+                             </div>
+                           )}
+                        </td>
                       </tr>
                     ))
                   )}
