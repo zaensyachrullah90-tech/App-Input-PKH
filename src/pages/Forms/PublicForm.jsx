@@ -6,7 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faUserShield, faDownload, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
 
 // =========================================================================
-// GANTI DENGAN URL GOOGLE APPS SCRIPT ANDA
+// URL GOOGLE APPS SCRIPT KHUSUS UNTUK UPLOAD FILE SAJA (BEBAS KUOTA)
 // =========================================================================
 const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
@@ -165,7 +165,6 @@ export default function PublicForm() {
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
     
-    // Aktifkan Loading Singkat Hanya untuk Upload Gambar
     const hasFiles = Object.keys(rawFiles).length > 0;
     if (hasFiles) setIsSaving(true);
     
@@ -178,7 +177,7 @@ export default function PublicForm() {
     });
 
     try {
-      // 1. PROSES UPLOAD LANGSUNG KE APPS SCRIPT (TEKS MURNI, ANTI CORS)
+      // 1. PROSES UPLOAD VIA GAS BYPASS (Bebas Quota Vercel)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -197,9 +196,7 @@ export default function PublicForm() {
       await Promise.all(uploadPromises);
       setIsSaving(false); 
 
-      // =========================================================================
       // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
-      // =========================================================================
       toast.success('Data Berhasil Direkam & Dikirim ke Cloud!');
       const saveEditingId = editingId;
       
@@ -218,43 +215,39 @@ export default function PublicForm() {
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
 
-      // =========================================================================
-      // BACKGROUND SYNC: Poses Supabase & Spreadsheet secara rahasia di balik layar
-      // =========================================================================
+      // 2. BACKGROUND SPREADSHEET SYNC (Via API Vercel + Service Account yang Cepat)
       (async () => {
-        // 1. Simpan Supabase
         if (saveEditingId) {
           await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
         } else {
           const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
           await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
-          fetchResponses(); // Silent refresh to clean tempId
+          fetchResponses(); 
         }
 
-        // 2. Simpan Sheet Otomatis
         let currentSheetId = formConfig?.spreadsheet_id;
         if (!currentSheetId && !saveEditingId) {
           try {
-            const createRes = await fetch(GAS_WEB_APP_URL, {
-              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
+            const createRes = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId })
             });
             const createData = await createRes.json();
             if (createData.spreadsheetId) {
               currentSheetId = createData.spreadsheetId;
               await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
               const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
-              await fetch(GAS_WEB_APP_URL, {
-                method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: currentSheetId, schema: schema })
+              await fetch('/api/sync-google', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
               });
             }
           } catch (e) {}
         }
 
         if (currentSheetId) {
-          fetch(GAS_WEB_APP_URL, {
-            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                action: saveEditingId ? 'updateRow' : 'appendRow', 
                spreadsheetId: currentSheetId, 
@@ -295,8 +288,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyiapkan Berkas Upload...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Mohon tunggu sebentar.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Berkas Ke Server Drive...</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas Anti-CORS Aktif.</p>
           </div>
         </div>
       )}
@@ -316,7 +309,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
           </button>
         </div>
 
@@ -339,7 +332,6 @@ export default function PublicForm() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                {/* HANYA MENAMPILKAN DATA WARGA YANG BUKAN MILIK VERIFIKATOR */}
                 {schema.filter(field => !field.adminLocked || field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor').map((field) => {
                   const colNameLower = field.name.toLowerCase();
                   const colLabelLower = field.label.toLowerCase();
@@ -416,7 +408,7 @@ export default function PublicForm() {
               <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
                 <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
                   <tr>
-                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Data Laporan</th>
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
                     {schema.filter(s => !s.adminLocked).map(col => (
                       <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
                     ))}
@@ -457,7 +449,6 @@ export default function PublicForm() {
                            );
                         })}
 
-                        {/* TOMBOL EDIT/HAPUS WARGA AMAN */}
                         <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
                            {res.data.delete_request_status === 'pending' ? (
                              <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
