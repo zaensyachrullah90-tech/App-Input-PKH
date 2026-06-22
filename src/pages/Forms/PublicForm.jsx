@@ -118,7 +118,7 @@ export default function PublicForm() {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
-       return toast.error('Maaf, ukuran maksimal dokumen PDF/Berkas non-foto adalah 3.5 MB.');
+       return toast.error('Maaf, ukuran dokumen PDF/Berkas non-foto max 3.5 MB.');
     }
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
@@ -172,8 +172,8 @@ export default function PublicForm() {
     });
 
     try {
-      // PROSES UPLOAD DENGAN TANGKAPAN ERROR NYATA
-      for (const key of Object.keys(rawFiles)) {
+      // 1. PROSES UPLOAD BERKAS
+      const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
@@ -182,21 +182,19 @@ export default function PublicForm() {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
-            
             const driveData = await res.json();
             if(res.ok && driveData.link) { 
               finalData[key] = driveData.link; 
-            } else { 
-              throw new Error(driveData.error || 'Server Tidak Merespons'); 
-            }
+            } else { throw new Error(driveData.error || 'Server Timeout'); }
           } catch(err) { 
-            console.error(err);
             finalData[key] = `ERROR: ${err.message}`; 
-            toast.error(`Berkas ${key} ditolak server: ${err.message}`, { duration: 5000 });
+            toast.error(`Berkas ${key} gagal: ${err.message}`);
           }
         }
-      }
+      });
+      await Promise.all(uploadPromises);
 
+      // 2. SIMPAN KE DATABASE LOKAL
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
         setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
@@ -207,14 +205,49 @@ export default function PublicForm() {
         if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
-      if (formConfig?.spreadsheet_id && !editingId) {
-        fetch('/api/sync-google', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        }).catch(e => console.error(e));
+      // =================================================================================
+      // 3. FITUR MUTLAK BARU: BUAT SPREADSHEET OTOMATIS JIKA BELUM ADA & TEMBAKKAN DATA
+      // =================================================================================
+      let currentSheetId = formConfig?.spreadsheet_id;
+
+      if (!currentSheetId && !editingId) {
+        const toastSheetId = toast.loading('Membuat Spreadsheet Otomatis di Drive...');
+        try {
+          const createRes = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'createForm', title: `Data Formulir - ${formConfig.title}`, folderId: globalFolderId })
+          });
+          const createData = await createRes.json();
+          if (createRes.ok && createData.spreadsheetId) {
+            currentSheetId = createData.spreadsheetId;
+            // Kunci ID Sheet baru ke Database agar tidak buat lagi besok-besok
+            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
+            
+            // Tulis Header Kolomnya Pertama Kali
+            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label]));
+            await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
+            });
+            toast.success('Spreadsheet Baru Berhasil Dibuat!', { id: toastSheetId });
+          }
+        } catch (e) { toast.error('Gagal membuat Spreadsheet otomatis.', { id: toastSheetId }); }
       }
 
-      toast.success('Data Berhasil Direkam!');
+      // SINKRONISASI DATA BARIS BARU KE SPREADSHEET
+      if (currentSheetId && !editingId) {
+        const syncRes = await fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
+        });
+        const syncData = await syncRes.json();
+        if (!syncRes.ok) {
+           toast.error(`Spreadsheet Error: ${syncData.error}`, { duration: 6000 });
+        } else {
+           toast.success('Data Sinkron ke Spreadsheet!');
+        }
+      }
+
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
@@ -222,7 +255,7 @@ export default function PublicForm() {
       
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Gagal merekam data.'); } 
+    } catch (err) { toast.error('Gagal merekam sistem.'); } 
     finally { setIsSaving(false); }
   };
 
@@ -255,8 +288,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Data & Berkas...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Kompresi cerdas aktif mengamankan file.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Memproses Integrasi Data...</p>
+            <p className="text-gray-500 text-[10px] mt-2 text-center">Sinkronisasi Database & Spreadsheet Otomatis.</p>
           </div>
         </div>
       )}
@@ -383,8 +416,8 @@ export default function PublicForm() {
                   );
                 })}
               </div>
-              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 text-xs md:text-sm">
-                Kirim Formulir Sekarang
+              <button type="submit" className="w-full bg-primary hover:bg-yellow-400 text-black font-black py-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-[0.98] uppercase tracking-widest mt-6 md:mt-8 text-xs md:text-sm">
+                Kirim Laporan Sekarang
               </button>
             </form>
           )
@@ -426,12 +459,9 @@ export default function PublicForm() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* MODAL LACAK VERIFIKASI FULL SCREEN ANTI TERPOTONG */}
-        {/* ========================================================================= */}
         {selectedDetail && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-3 md:p-4">
-            <div className="bg-[#0f172a] border border-white/10 w-full max-w-6xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
+            <div className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl md:rounded-3xl shadow-2xl relative flex flex-col h-[95vh] md:h-[90vh] animate-fade-in-up">
               
               <div className="flex-none p-4 md:p-6 border-b border-white/10 relative pr-14">
                 <button onClick={() => setSelectedDetail(null)} className="absolute top-4 md:top-6 right-4 md:right-6 text-gray-400 hover:text-white z-20 bg-black/50 md:bg-transparent rounded-full p-2 md:p-0"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
@@ -441,6 +471,7 @@ export default function PublicForm() {
 
               <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
+                  
                   <div className="space-y-3 md:space-y-4 bg-black/30 p-4 md:p-5 rounded-xl md:rounded-2xl border border-white/5 shadow-inner">
                      <h4 className="text-xs md:text-sm font-bold text-white uppercase tracking-widest border-b border-white/10 pb-2 flex items-center"><FontAwesomeIcon icon={faIdBadge} className="mr-2 text-primary"/> Data Pemohon</h4>
                      <div className="space-y-2 md:space-y-3">
