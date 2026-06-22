@@ -3,11 +3,9 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faUserShield, faDownload, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 
-// =========================================================================
-// URL GOOGLE APPS SCRIPT KHUSUS UNTUK UPLOAD FILE SAJA (BEBAS KUOTA)
-// =========================================================================
+// URL GOOGLE APPS SCRIPT ANDA SUDAH SAYA KUNCI MATI DI SINI
 const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
 const DATA_WILAYAH = {
@@ -163,7 +161,6 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
-    if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
     
     const hasFiles = Object.keys(rawFiles).length > 0;
     if (hasFiles) setIsSaving(true);
@@ -177,18 +174,17 @@ export default function PublicForm() {
     });
 
     try {
-      // 1. PROSES UPLOAD VIA GAS BYPASS (Bebas Quota Vercel)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch(GAS_WEB_APP_URL, {
-              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(driveData.link) { finalData[key] = driveData.link; } 
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
           } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
@@ -196,7 +192,6 @@ export default function PublicForm() {
       await Promise.all(uploadPromises);
       setIsSaving(false); 
 
-      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
       toast.success('Data Berhasil Direkam & Dikirim ke Cloud!');
       const saveEditingId = editingId;
       
@@ -215,7 +210,6 @@ export default function PublicForm() {
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
 
-      // 2. BACKGROUND SPREADSHEET SYNC (Via API Vercel + Service Account yang Cepat)
       (async () => {
         if (saveEditingId) {
           await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
@@ -230,7 +224,7 @@ export default function PublicForm() {
           try {
             const createRes = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId })
+              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
             });
             const createData = await createRes.json();
             if (createData.spreadsheetId) {
@@ -288,8 +282,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Berkas Ke Server Drive...</p>
-            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas Anti-CORS Aktif.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Auto-Folder Aktif (200-700 KB).</p>
           </div>
         </div>
       )}
@@ -408,7 +402,7 @@ export default function PublicForm() {
               <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
                 <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
                   <tr>
-                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Data Laporan</th>
                     {schema.filter(s => !s.adminLocked).map(col => (
                       <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
                     ))}
