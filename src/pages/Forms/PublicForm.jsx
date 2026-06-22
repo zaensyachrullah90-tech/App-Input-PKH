@@ -3,12 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
-
-// =========================================================================
-// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA
-// =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -39,7 +34,6 @@ export default function PublicForm() {
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
-  const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -115,7 +109,7 @@ export default function PublicForm() {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
-       return toast.error('Maaf, ukuran dokumen PDF max 3.5 MB.');
+       return toast.error('Maaf, ukuran dokumen PDF maksimal 3.5 MB. Kompres mandiri terlebih dahulu.');
     }
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
@@ -137,7 +131,7 @@ export default function PublicForm() {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
+          const MAX_WIDTH = 1024; const MAX_HEIGHT = 1024;
           let width = img.width; let height = img.height;
           if (width > height) {
             if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -147,7 +141,14 @@ export default function PublicForm() {
           canvas.width = width; canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.5).split(',')[1]);
+          
+          let quality = 0.8;
+          let base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+          while (base64.length * 0.75 > 700000 && quality > 0.1) {
+            quality -= 0.1;
+            base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+          }
+          resolve(base64);
         };
       };
       reader.onerror = error => reject(error);
@@ -157,12 +158,8 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
-    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
     
-    // Aktifkan Loading Singkat Hanya untuk Upload
-    const hasFiles = Object.keys(rawFiles).length > 0;
-    if (hasFiles) setIsSaving(true);
-    
+    setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
@@ -172,7 +169,6 @@ export default function PublicForm() {
     });
 
     try {
-      // 1. PROSES UPLOAD VIA VERCEL PROXY
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -189,80 +185,62 @@ export default function PublicForm() {
         }
       });
       await Promise.all(uploadPromises);
-      setIsSaving(false); // Matikan loading, sisa proses berjalan instant
 
-      // =========================================================================
-      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
-      // =========================================================================
-      toast.success('Data Berhasil Direkam!');
+      // SIMPAN DATABASE
       if (editingId) {
+        await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
         setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
       } else {
-        const tempId = 'temp-' + Date.now();
-        setResponses(prev => [{ id: tempId, data: finalData, created_at: new Date().toISOString() }, ...prev]);
+        const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+        const kabupatenVal = kabKey ? finalData[kabKey] : 'Publik';
+        const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabupatenVal }]).select().single();
+        if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
+      // BACKGROUND SYNC KE SPREADSHEET MENGGUNAKAN API (APPEND/UPDATE)
+      let currentSheetId = formConfig?.spreadsheet_id;
+      if (!currentSheetId && !editingId) {
+        try {
+          const createRes = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
+          });
+          const createData = await createRes.json();
+          if (createData.spreadsheetId) {
+            currentSheetId = createData.spreadsheetId;
+            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
+            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
+            await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
+            });
+          }
+        } catch (e) {}
+      }
+
+      if (currentSheetId) {
+        fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+             action: editingId ? 'updateRow' : 'appendRow', 
+             spreadsheetId: currentSheetId, 
+             nomor_registrasi: finalData.nomor_registrasi,
+             schema: schema, 
+             rowData: finalData 
+          })
+        });
+      }
+
+      toast.success('Data Berhasil Dikirim dan Tersinkronisasi!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
       
-      setFormData(resetData); setRawFiles({}); 
-      const saveEditingId = editingId; // Simpan ID untuk background
-      setEditingId(null);
+      setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-
-      // =========================================================================
-      // BACKGROUND SYNC: Poses Supabase & Spreadsheet secara rahasia di balik layar
-      // =========================================================================
-      (async () => {
-        let dbSavedId = saveEditingId;
-        // 1. Simpan Supabase
-        if (saveEditingId) {
-          await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
-        } else {
-          const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
-          const { data: insertedData } = await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]).select().single();
-          if (insertedData) dbSavedId = insertedData.id;
-          fetchResponses(); // Silent refresh to replace tempId
-        }
-
-        // 2. Simpan Sheet Otomatis
-        let currentSheetId = formConfig?.spreadsheet_id;
-        if (!currentSheetId && !saveEditingId) {
-          try {
-            const createRes = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
-            });
-            const createData = await createRes.json();
-            if (createData.spreadsheetId) {
-              currentSheetId = createData.spreadsheetId;
-              await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-              const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
-              await fetch('/api/sync-google', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
-              });
-            }
-          } catch (e) {}
-        }
-
-        if (currentSheetId) {
-          fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-               action: saveEditingId ? 'updateRow' : 'appendRow', 
-               spreadsheetId: currentSheetId, 
-               nomor_registrasi: finalData.nomor_registrasi, 
-               schema: schema, 
-               rowData: finalData 
-            })
-          });
-        }
-      })();
-
-    } catch (err) { setIsSaving(false); toast.error('Gagal merekam data.'); } 
+    } catch (err) { toast.error('Gagal merekam data.'); } 
+    finally { setIsSaving(false); }
   };
 
   const handleEdit = (responseItem) => {
@@ -275,14 +253,13 @@ export default function PublicForm() {
 
   const handleRequestDelete = async (responseItem) => {
     if (!window.confirm('Ajukan permohonan penghapusan data ini kepada Administrator?')) return;
-    toast.success('Permohonan hapus terkirim secara instan!');
-    
-    // Optimistic Update
-    const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
-    setResponses(prev => prev.map(item => item.id === responseItem.id ? { ...item, data: updatedData } : item));
-    
-    // Background Update
-    supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id).then();
+    const toastId = toast.loading('Mengirim permohonan...');
+    try {
+      const updatedData = { ...responseItem.data, delete_request_status: 'pending' };
+      await supabase.from('form_responses').update({ data: updatedData }).eq('id', responseItem.id);
+      toast.success('Permohonan terkirim!', { id: toastId });
+      setResponses(prev => prev.map(item => item.id === responseItem.id ? { ...item, data: updatedData } : item));
+    } catch (err) { toast.error('Gagal.', { id: toastId }); }
   };
 
   if (loading) return <div className="min-h-screen bg-[#030712] flex flex-col justify-center items-center"><FontAwesomeIcon icon={faSpinner} spin size="2xl" className="text-primary mb-4"/><p className="text-gray-500 font-bold tracking-widest text-xs uppercase">Menyiapkan Sistem Publik...</p></div>;
@@ -295,8 +272,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyiapkan Berkas Upload...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Mohon tunggu sebentar.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Bypass API Aktif (200-700 KB).</p>
           </div>
         </div>
       )}
@@ -392,7 +369,7 @@ export default function PublicForm() {
                           {isCurrency && <span className="absolute left-4 font-bold text-xs md:text-sm text-primary">Rp.</span>}
                           <input
                             type={isCurrency ? 'text' : field.type || 'text'} name={field.name}
-                            value={isNoField ? (responses.length + 1) : (formData[field.name] || '')}
+                            value={isNoField ? (editingId ? formData[field.name] : (responses.length + 1)) : (formData[field.name] || '')}
                             onChange={(e) => handleInputChange(e, field)} disabled={isNoField}
                             placeholder={isCurrency ? '100.000' : `Ketik ${field.label.toLowerCase()}...`}
                             className={`w-full p-3.5 md:p-4 rounded-xl border outline-none transition-all duration-300 text-xs md:text-sm ${isCurrency ? 'pl-10 md:pl-12' : 'pl-3.5 md:pl-4'} ${isNoField ? 'bg-white/5 text-gray-400 border-white/5 cursor-not-allowed font-semibold' : 'bg-black/40 text-white border-white/10 focus:border-primary focus:bg-black/60 placeholder-gray-600'}`}
@@ -456,7 +433,7 @@ export default function PublicForm() {
                            );
                         })}
 
-                        {/* TOMBOL EDIT/HAPUS WARGA AMAN */}
+                        {/* TOMBOL EDIT/HAPUS WARGA TERKUNCI AMAN */}
                         <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
                            {res.data.delete_request_status === 'pending' ? (
                              <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
