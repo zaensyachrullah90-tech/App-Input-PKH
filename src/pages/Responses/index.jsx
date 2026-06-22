@@ -4,11 +4,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
-// =========================================================================
-// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
-// =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
-
 const DATA_WILAYAH = {
   "TAPIN": {
     "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
@@ -126,7 +121,7 @@ export default function Responses() {
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
-    const toastId = toast.loading('Menyuntikkan Header Verifikasi ke Database & Spreadsheet...');
+    const toastId = toast.loading('Menyuntikkan Header ke Database & Spreadsheet...');
     try {
       const dropdownOptions = newVerifyCol.type === 'select' && newVerifyCol.options ? newVerifyCol.options.split(',').map(opt => opt.trim()) : [];
       const newCol = { 
@@ -146,7 +141,7 @@ export default function Responses() {
         });
       }
 
-      toast.success('Header Verifikasi Berhasil Dibuat!', { id: toastId });
+      toast.success('Header Berhasil Dibuat dan Disinkronisasi!', { id: toastId });
       setNewVerifyCol({ name: '', label: '', type: 'text', options: '' });
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
@@ -174,7 +169,6 @@ export default function Responses() {
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
-
     setVerifyEditData(newFormData);
   };
 
@@ -213,8 +207,6 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
-
     setIsSaving(true);
     let finalData = { ...verifyEditData };
 
@@ -224,18 +216,16 @@ export default function Responses() {
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch(GAS_WEB_APP_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error(driveData.error || 'Server Error'); }
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error('Timeout Server'); }
           } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
         }
       });
-
       await Promise.all(uploadPromises);
 
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
@@ -336,7 +326,7 @@ export default function Responses() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Verifikasi...</p>
             <p className="text-gray-500 text-[10px] mt-2">Bypass Server API Google Aktif.</p>
           </div>
         </div>
@@ -412,7 +402,7 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MULTAK: Verifikator tidak bisa mengedit data pemohon
+                        // KUNCI MUTLAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
