@@ -3,7 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faUserShield, faDownload, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -30,9 +30,11 @@ export default function PublicForm() {
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formConfig, setFormConfig] = useState(null);
+  
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
+  const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -53,22 +55,27 @@ export default function PublicForm() {
   }, [formId]);
 
   const fetchFormSetup = async () => {
+    if (!formId) return;
     try {
       const { data: form, error } = await supabase.from('forms').select('*').eq('id', formId).single();
       if (error || !form) throw new Error();
       setFormConfig(form);
       const formSchema = form.schema || [];
       setSchema(formSchema);
+
       const autoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(autoNum);
       const initialData = { nomor_registrasi: autoNum };
-      formSchema.forEach(field => { if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase(); });
+      formSchema.forEach(field => {
+        if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase();
+      });
       setFormData(prev => ({ ...initialData, ...prev }));
     } catch (err) { toast.error('Formulir tidak valid.'); }
     finally { setLoading(false); }
   };
 
   const fetchResponses = async () => {
+    if (!formId) return;
     const { data } = await supabase.from('form_responses').select('*').eq('form_id', formId).order('created_at', { ascending: false });
     if (data) setResponses(data);
   };
@@ -88,7 +95,9 @@ export default function PublicForm() {
     const name = e.target.name.toLowerCase();
     if (field.type === 'currency') value = value ? formatRupiah(value) : '';
     else value = value.toUpperCase();
+
     let newFormData = { ...formData, [field.name]: value };
+
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     } else if (name.includes('kecamatan')) {
@@ -100,7 +109,10 @@ export default function PublicForm() {
   const handleFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) return toast.error('Maaf, ukuran dokumen PDF max 3.5 MB.');
+    // BLOCK FILE PDF/DOC YANG LEBIH DARI 700KB
+    if (!file.type.startsWith('image/') && file.size > 750 * 1024) {
+       return toast.error('Maaf, ukuran dokumen PDF maksimal 700 KB. Silakan kompres secara mandiri terlebih dahulu.');
+    }
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
   };
@@ -121,7 +133,7 @@ export default function PublicForm() {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
+          const MAX_WIDTH = 1024; const MAX_HEIGHT = 1024;
           let width = img.width; let height = img.height;
           if (width > height) {
             if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -131,7 +143,15 @@ export default function PublicForm() {
           canvas.width = width; canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.5).split(',')[1]);
+          
+          // SMART COMPRESSION: Target 200KB - 700KB
+          let quality = 0.8;
+          let base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+          while (base64.length * 0.75 > 700000 && quality > 0.1) {
+            quality -= 0.1;
+            base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+          }
+          resolve(base64);
         };
       };
       reader.onerror = error => reject(error);
@@ -141,12 +161,19 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
+    if (!formId) return toast.error('Form ID tidak terdeteksi.');
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
-    schema.forEach(col => { if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1); });
+
+    schema.forEach(col => {
+      if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') {
+        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
+      }
+    });
 
     try {
+      // 1. PROSES UPLOAD VIA PROXY (AMAN DARI CORS DAN TIMEOUT)
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -154,16 +181,28 @@ export default function PublicForm() {
             const base64String = await compressImage(fileObject);
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
+              body: JSON.stringify({ 
+                action: 'uploadFile', 
+                fileName: fileObject.name, 
+                mimeType: fileObject.type, 
+                base64Data: base64String, 
+                folderId: globalFolderId,
+                formTitle: formConfig?.title || 'Umum' 
+              })
             });
             const driveData = await res.json();
-            if(driveData.link) finalData[key] = driveData.link; 
-            else throw new Error(driveData.error || 'Server Error');
-          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
+            if(res.ok && driveData.link) { 
+              finalData[key] = driveData.link; 
+            } else { throw new Error(driveData.error || 'Server Error'); }
+          } catch(err) { 
+            finalData[key] = `GAGAL UPLOAD`; 
+            toast.error(`Berkas ${key} gagal diunggah: ${err.message}`); 
+          }
         }
       });
       await Promise.all(uploadPromises);
 
+      // 2. SIMPAN KE DATABASE LOKAL
       if (editingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', editingId);
         setResponses(prev => prev.map(item => item.id === editingId ? { ...item, data: finalData } : item));
@@ -174,13 +213,13 @@ export default function PublicForm() {
         if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
-      // BUAT SPREADSHEET OTOMATIS JIKA BELUM ADA
+      // 3. SINKRONISASI SPREADSHEET DAN AUTO-CREATE FOLDER
       let currentSheetId = formConfig?.spreadsheet_id;
       if (!currentSheetId && !editingId) {
         try {
           const createRes = await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId })
+            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
           });
           const createData = await createRes.json();
           if (createData.spreadsheetId) {
@@ -192,24 +231,25 @@ export default function PublicForm() {
               body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
             });
           }
-        } catch (e) { console.error('Gagal buat sheet otomatis'); }
+        } catch (e) { console.error('Gagal buat sheet'); }
       }
 
       if (currentSheetId && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
-        });
+        }).catch(e => console.error("Sheet error:", e));
       }
 
-      toast.success('Data Berhasil Direkam!');
+      toast.success('Data Formulir Anda Berhasil Terkirim!');
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
+      
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
-    } catch (err) { toast.error('Gagal merekam data.'); } 
+    } catch (err) { toast.error('Terjadi kesalahan sistem.'); } 
     finally { setIsSaving(false); }
   };
 
@@ -243,6 +283,7 @@ export default function PublicForm() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
+            <p className="text-gray-500 text-[10px] mt-2 text-center">Kompresi cerdas aktif (200-700 KB).</p>
           </div>
         </div>
       )}
@@ -262,7 +303,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
           </button>
         </div>
 
@@ -271,7 +312,6 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
-              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut</strong> pada tab Dashboard Publik.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
@@ -286,6 +326,7 @@ export default function PublicForm() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                {/* HANYA MENAMPILKAN DATA WARGA YANG BUKAN MILIK VERIFIKATOR */}
                 {schema.filter(field => !field.adminLocked || field.name.toLowerCase() === 'no' || field.name.toLowerCase() === 'nomor').map((field) => {
                   const colNameLower = field.name.toLowerCase();
                   const colLabelLower = field.label.toLowerCase();
@@ -362,7 +403,7 @@ export default function PublicForm() {
               <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
                 <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
                   <tr>
-                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Data Laporan</th>
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
                     {schema.filter(s => !s.adminLocked).map(col => (
                       <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
                     ))}
@@ -397,13 +438,12 @@ export default function PublicForm() {
                            let val = String(res.data[col.name] || '').trim();
                            return (
                              <td key={col.name} className="px-5 py-4 border-l border-blue-900/30 bg-blue-900/5">
-                               {val === '' ? <span className="text-gray-600 italic">Menunggu...</span> : 
-                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Berkas Tinjauan</a> : <span className="text-white font-black">{val}</span>}
+                               {val === '' ? <span className="text-gray-600 italic">Menunggu Verifikasi...</span> : 
+                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Buka Berkas</a> : <span className="text-white font-black">{val}</span>}
                              </td>
                            );
                         })}
 
-                        {/* TOMBOL EDIT/HAPUS WARGA DIKEMBALIKAN MUTLAK */}
                         <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
                            {res.data.delete_request_status === 'pending' ? (
                              <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
