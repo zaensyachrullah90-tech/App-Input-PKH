@@ -3,12 +3,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faSearch, faTimes, faUserShield, faDownload, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
-
-// =========================================================================
-// URL GOOGLE APPS SCRIPT SUDAH TERPASANG SEMPURNA DAN AMAN
-// =========================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+import { faSpinner, faPaperPlane, faLock, faFolderOpen, faListAlt, faEdit, faUpload, faIdBadge, faChevronDown, faTrash, faUserShield, faDownload, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
 
 const DATA_WILAYAH = {
   "TAPIN": {
@@ -35,11 +30,9 @@ export default function PublicForm() {
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formConfig, setFormConfig] = useState(null);
-  
   const [activeTab, setActiveTab] = useState('input');
   const [editingId, setEditingId] = useState(null);
   const [registrationNo, setRegistrationNo] = useState('');
-  const [selectedDetail, setSelectedDetail] = useState(null);
   const [rawFiles, setRawFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -60,27 +53,22 @@ export default function PublicForm() {
   }, [formId]);
 
   const fetchFormSetup = async () => {
-    if (!formId) return;
     try {
       const { data: form, error } = await supabase.from('forms').select('*').eq('id', formId).single();
       if (error || !form) throw new Error();
       setFormConfig(form);
       const formSchema = form.schema || [];
       setSchema(formSchema);
-
       const autoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(autoNum);
       const initialData = { nomor_registrasi: autoNum };
-      formSchema.forEach(field => {
-        if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase();
-      });
+      formSchema.forEach(field => { if (field.defaultValue) initialData[field.name] = field.defaultValue.toUpperCase(); });
       setFormData(prev => ({ ...initialData, ...prev }));
     } catch (err) { toast.error('Formulir tidak valid.'); }
     finally { setLoading(false); }
   };
 
   const fetchResponses = async () => {
-    if (!formId) return;
     const { data } = await supabase.from('form_responses').select('*').eq('form_id', formId).order('created_at', { ascending: false });
     if (data) setResponses(data);
   };
@@ -98,23 +86,13 @@ export default function PublicForm() {
   const handleInputChange = (e, field) => {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
-
-    if (field.type === 'currency') {
-      value = value ? formatRupiah(value) : '';
-    } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
-      value = value.toUpperCase();
-    }
-
+    if (field.type === 'currency') value = value ? formatRupiah(value) : '';
+    else value = value.toUpperCase();
     let newFormData = { ...formData, [field.name]: value };
-
     if (name.includes('kabupaten')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     } else if (name.includes('kecamatan')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
     setFormData(newFormData);
   };
@@ -122,9 +100,7 @@ export default function PublicForm() {
   const handleFileChange = (e, fieldName) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
-       return toast.error('Maaf, ukuran maksimal dokumen PDF max 3.5 MB.');
-    }
+    if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) return toast.error('Maaf, ukuran dokumen PDF max 3.5 MB.');
     setRawFiles(prev => ({ ...prev, [fieldName]: file }));
     setFormData(prev => ({ ...prev, [fieldName]: file.name }));
   };
@@ -165,17 +141,10 @@ export default function PublicForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
-    if (!formId) return toast.error('Form ID tidak terdeteksi.');
-    if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
     
     setIsSaving(true);
     let finalData = { ...formData, nomor_registrasi: registrationNo };
-
-    schema.forEach(col => {
-      if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') {
-        finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1);
-      }
-    });
+    schema.forEach(col => { if (col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor') finalData[col.name] = editingId ? formData[col.name] : (responses.length + 1); });
 
     try {
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
@@ -183,15 +152,14 @@ export default function PublicForm() {
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch(GAS_WEB_APP_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
             const driveData = await res.json();
-            if(driveData.link) { finalData[key] = driveData.link; } 
-            else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas ${key} gagal: ${err.message}`); }
+            if(driveData.link) finalData[key] = driveData.link; 
+            else throw new Error(driveData.error || 'Server Error');
+          } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
@@ -206,11 +174,32 @@ export default function PublicForm() {
         if (insertedData) setResponses(prev => [insertedData, ...prev]);
       }
 
-      if (formConfig?.spreadsheet_id) {
+      // BUAT SPREADSHEET OTOMATIS JIKA BELUM ADA
+      let currentSheetId = formConfig?.spreadsheet_id;
+      if (!currentSheetId && !editingId) {
+        try {
+          const createRes = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId })
+          });
+          const createData = await createRes.json();
+          if (createData.spreadsheetId) {
+            currentSheetId = createData.spreadsheetId;
+            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
+            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
+            await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
+            });
+          }
+        } catch (e) { console.error('Gagal buat sheet otomatis'); }
+      }
+
+      if (currentSheetId && !editingId) {
         fetch('/api/sync-google', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: schema, rowData: finalData })
-        }).catch(e => console.error("Sheet error:", e));
+          body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
+        });
       }
 
       toast.success('Data Berhasil Direkam!');
@@ -218,7 +207,6 @@ export default function PublicForm() {
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
       schema.forEach(field => { if (field.defaultValue) resetData[field.name] = field.defaultValue.toUpperCase(); });
-      
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
     } catch (err) { toast.error('Gagal merekam data.'); } 
@@ -254,8 +242,7 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Cloud...</p>
-            <p className="text-gray-500 text-[10px] mt-2 text-center">Bypass API Script Aktif.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
           </div>
         </div>
       )}
@@ -275,7 +262,7 @@ export default function PublicForm() {
             <FontAwesomeIcon icon={faPaperPlane} className="mr-2" /> Isi Formulir
           </button>
           <button onClick={() => handleTabSwitch('results')} className={`flex-1 py-3 md:py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${activeTab === 'results' ? 'bg-primary text-black shadow-[0_4px_20px_rgba(234,179,8,0.3)]' : 'text-gray-500 hover:text-white'}`}>
-            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status Lacak
+            <FontAwesomeIcon icon={faListAlt} className="mr-2" /> Dashboard Publik & Status
           </button>
         </div>
 
@@ -284,6 +271,7 @@ export default function PublicForm() {
             <div className="text-center p-8 md:p-12 border border-dashed border-red-500/30 rounded-2xl bg-red-950/10 animate-fade-in">
               <FontAwesomeIcon icon={faLock} className="text-4xl text-red-500 mb-4 animate-bounce" />
               <h3 className="text-base md:text-lg font-black text-white uppercase mb-2">Penerimaan Data Ditutup</h3>
+              <p className="text-gray-400 text-xs md:text-sm max-w-xl mx-auto leading-relaxed">Formulir dinonaktifkan oleh Administrator. Anda <strong>tetap dapat melacak hasil tindak lanjut</strong> pada tab Dashboard Publik.</p>
             </div>
           ) : schema.length === 0 ? (
             <div className="text-center p-10 border border-dashed border-white/10 rounded-2xl bg-black/30"><p className="text-gray-500 text-sm">Formulir belum memiliki kolom input.</p></div>
@@ -374,13 +362,14 @@ export default function PublicForm() {
               <table className="min-w-full text-left text-[10px] md:text-xs whitespace-nowrap">
                 <thead className="uppercase tracking-wider border-b border-gray-700 bg-black/60">
                   <tr>
-                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Registrasi</th>
+                    <th className="px-5 py-4 font-black text-primary sticky left-0 bg-[#0b1120] z-10 shadow-[5px_0_15px_rgba(0,0,0,0.5)]">Data Laporan</th>
                     {schema.filter(s => !s.adminLocked).map(col => (
                       <th key={col.name} className="px-5 py-4 font-bold text-gray-300">{col.label}</th>
                     ))}
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
+                    <th className="px-5 py-4 font-black text-red-400 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">Aksi Pemohon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
@@ -398,7 +387,7 @@ export default function PublicForm() {
                            let val = res.data[col.name] || '-';
                            return (
                              <td key={col.name} className="px-5 py-4 text-gray-200">
-                               {String(val).startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-primary hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Unduh</a> : 
+                               {String(val).startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-primary hover:text-yellow-400 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Unduh Berkas</a> : 
                                 String(val).includes('GAGAL') ? <span className="text-red-400 bg-red-400/10 px-2 py-1 rounded">GAGAL UPLOAD</span> : val}
                              </td>
                            );
@@ -409,10 +398,26 @@ export default function PublicForm() {
                            return (
                              <td key={col.name} className="px-5 py-4 border-l border-blue-900/30 bg-blue-900/5">
                                {val === '' ? <span className="text-gray-600 italic">Menunggu...</span> : 
-                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline font-bold"><FontAwesomeIcon icon={faDownload}/> Berkas</a> : <span className="text-white font-black">{val}</span>}
+                                val.startsWith('http') ? <a href={val} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-bold flex items-center"><FontAwesomeIcon icon={faDownload} className="mr-1.5"/> Berkas Tinjauan</a> : <span className="text-white font-black">{val}</span>}
                              </td>
                            );
                         })}
+
+                        {/* TOMBOL EDIT/HAPUS WARGA DIKEMBALIKAN MUTLAK */}
+                        <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
+                           {res.data.delete_request_status === 'pending' ? (
+                             <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
+                           ) : (
+                             <div className="flex justify-center space-x-2">
+                               <button onClick={() => handleEdit(res)} disabled={formConfig?.is_active === false} className="px-3 py-1.5 bg-white/10 text-white font-bold rounded hover:bg-white/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                 <FontAwesomeIcon icon={faEdit} />
+                               </button>
+                               <button onClick={() => handleRequestDelete(res)} className="px-3 py-1.5 bg-red-950/40 text-red-400 font-bold rounded hover:bg-red-600 hover:text-white transition-colors">
+                                 <FontAwesomeIcon icon={faTrash} />
+                               </button>
+                             </div>
+                           )}
+                        </td>
                       </tr>
                     ))
                   )}
