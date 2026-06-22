@@ -4,6 +4,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
+// =========================================================================
+// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA (DARI LANGKAH 1)
+// =========================================================================
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+
 const DATA_WILAYAH = {
   "TAPIN": {
     "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
@@ -27,6 +32,7 @@ export default function Responses() {
   const [selectedFormId, setSelectedFormId] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeSchema, setActiveSchema] = useState([]);
+  const [formConfig, setFormConfig] = useState(null);
   
   const [isVerifikator, setIsVerifikator] = useState(false);
   const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
@@ -56,9 +62,7 @@ export default function Responses() {
 
   const checkRole = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user?.email?.toLowerCase().includes('verifikator')) {
-      setIsVerifikator(true);
-    }
+    if (session?.user?.email?.toLowerCase().includes('verifikator')) setIsVerifikator(true);
   };
 
   const fetchForms = async () => {
@@ -72,8 +76,11 @@ export default function Responses() {
   const fetchResponses = async (formId) => {
     if (!formId) return;
     setLoading(true);
-    const formConfig = forms.find(f => f.id === formId);
-    if (formConfig) setActiveSchema(formConfig.schema || []);
+    const config = forms.find(f => f.id === formId);
+    if (config) {
+      setFormConfig(config);
+      setActiveSchema(config.schema || []);
+    }
     const { data } = await supabase.from('form_responses').select('*, forms(title)').eq('form_id', formId).order('created_at', { ascending: false });
     if (data) setResponses(data);
     setLoading(false);
@@ -91,7 +98,7 @@ export default function Responses() {
     try {
       await supabase.from('form_responses').delete().eq('id', id);
       toast.success('Data dihapus permanen.');
-      fetchResponses(selectedFormId);
+      setResponses(prev => prev.filter(r => r.id !== id));
     } catch (err) {}
   };
 
@@ -102,7 +109,7 @@ export default function Responses() {
       delete updatedData.delete_request_status;
       await supabase.from('form_responses').update({ data: updatedData }).eq('id', resItem.id);
       toast.success('Permintaan hapus ditolak.');
-      fetchResponses(selectedFormId);
+      setResponses(prev => prev.map(item => item.id === resItem.id ? { ...item, data: updatedData } : item));
     } catch (err) {}
   };
 
@@ -119,7 +126,7 @@ export default function Responses() {
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
-    const toastId = toast.loading('Menyuntikkan Header Verifikasi ke Database...');
+    const toastId = toast.loading('Menyuntikkan Header Verifikasi ke Database & Spreadsheet...');
     try {
       const dropdownOptions = newVerifyCol.type === 'select' && newVerifyCol.options ? newVerifyCol.options.split(',').map(opt => opt.trim()) : [];
       const newCol = { 
@@ -131,9 +138,16 @@ export default function Responses() {
       setActiveSchema(updatedSchema);
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
+      // MENG-UPDATE KOLOM DI SPREADSHEET
+      if (formConfig?.spreadsheet_id) {
+        await fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
+        });
+      }
+
       toast.success('Header Verifikasi Berhasil Dibuat!', { id: toastId });
       setNewVerifyCol({ name: '', label: '', type: 'text', options: '' });
-      fetchForms(); 
     } catch (err) { toast.error('Gagal menyuntikkan header.', { id: toastId }); }
   };
 
@@ -141,7 +155,7 @@ export default function Responses() {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/') && file.size > 3.5 * 1024 * 1024) {
-       return toast.error('Maaf, ukuran maksimal dokumen PDF/Berkas non-foto adalah 3.5 MB.');
+       return toast.error('Maaf, ukuran PDF maksimal 3.5 MB.');
     }
     setRawVerifyFiles(prev => ({ ...prev, [fieldName]: file }));
     setVerifyEditData(prev => ({ ...prev, [fieldName]: file.name }));
@@ -150,22 +164,15 @@ export default function Responses() {
   const handleVerifyInputChange = (e, field) => {
     let value = e.target.value;
     const name = e.target.name.toLowerCase();
-    if (field.type === 'currency') {
-      value = value ? formatRupiah(value) : '';
-    } else if (field.type !== 'email' && field.type !== 'password' && !name.includes('email') && !name.includes('password') && !name.includes('user')) {
-      value = value.toUpperCase();
-    }
+    if (field.type === 'currency') value = value ? formatRupiah(value) : '';
+    else value = value.toUpperCase();
 
     let newFormData = { ...verifyEditData, [field.name]: value };
 
     if (name.includes('kabupaten')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     } else if (name.includes('kecamatan')) {
-      Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
-      });
+      Object.keys(newFormData).forEach(k => { if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = ''; });
     }
 
     setVerifyEditData(newFormData);
@@ -206,6 +213,8 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
+    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Developer belum memasukkan URL Google Apps Script di kode!");
+
     setIsSaving(true);
     let finalData = { ...verifyEditData };
 
@@ -215,18 +224,15 @@ export default function Responses() {
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const res = await fetch(GAS_WEB_APP_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Bypass CORS
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId })
             });
-            const textResponse = await res.text();
-            let driveData;
-            try { driveData = JSON.parse(textResponse); } 
-            catch(err) { throw new Error('API Vercel Terblokir / Timeout.'); }
-
-            if(!res.ok) throw new Error(driveData.error || 'Server Timeout');
-            finalData[key] = driveData.link;
-          } catch(err) { finalData[key] = `ERROR: ${err.message}`; }
+            const driveData = await res.json();
+            if(driveData.link) { finalData[key] = driveData.link; } 
+            else { throw new Error(driveData.error || 'Server Error'); }
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
         }
       });
 
@@ -235,14 +241,11 @@ export default function Responses() {
       await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
       
       toast.success('Hasil Verifikasi Berhasil Diamankan!');
-      
-      // Update tabel real-time tanpa refresh
       setResponses(prev => prev.map(item => item.id === verifyData.id ? { ...item, data: finalData } : item));
       setShowVerifyModal(false);
       setRawVerifyFiles({});
-    } catch (err) { 
-      toast.error('Gagal menyimpan verifikasi.'); 
-    } finally { setIsSaving(false); }
+    } catch (err) { toast.error('Gagal menyimpan verifikasi.'); } 
+    finally { setIsSaving(false); }
   };
 
   const handleExportExcel = () => {
@@ -333,8 +336,8 @@ export default function Responses() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Tindak Lanjut...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Kompresi cerdas aktif mengamankan file.</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
+            <p className="text-gray-500 text-[10px] mt-2">Bypass Server API Google Aktif.</p>
           </div>
         </div>
       )}
@@ -359,9 +362,6 @@ export default function Responses() {
         </div>
       )}
 
-      {/* ===================================================================== */}
-      {/* RUANG VERIFIKATOR - FULL SCREEN DESKTOP DAN FULL RESPONSIVE FIX */}
-      {/* ===================================================================== */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
           <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up overflow-hidden">
@@ -411,7 +411,6 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MUTLAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
@@ -483,7 +482,6 @@ export default function Responses() {
                 </div>
               </div>
 
-              {/* FOOTER TOMBOL KEMBALI DAN SIMPAN */}
               <div className="flex-none p-4 md:p-6 border-t border-white/10 bg-darker flex flex-col md:flex-row justify-end gap-3 z-10 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
                 <button type="button" onClick={() => { setShowVerifyModal(false); setRawVerifyFiles({}); }} className="w-full md:w-auto px-8 py-4 md:py-3 bg-gray-800 hover:bg-gray-700 text-white font-black rounded-xl text-xs md:text-sm uppercase tracking-widest transition-all">
                   <FontAwesomeIcon icon={faArrowLeft} className="mr-3" /> Kembali
@@ -498,7 +496,6 @@ export default function Responses() {
         </div>
       )}
 
-      {/* HEADER MONITORING PANEL UTAMA */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 md:pb-6 gap-3 md:gap-4">
         <div><h2 className="text-xl md:text-2xl lg:text-3xl font-extrabold text-white uppercase tracking-wide flex items-center"><FontAwesomeIcon icon={faDatabase} className="mr-2 md:mr-3 text-primary" /> Executive Data Table</h2></div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3 w-full md:w-auto">
@@ -512,7 +509,6 @@ export default function Responses() {
         </div>
       </div>
       
-      {/* DATA VIEW */}
       <div className="bg-darker rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden border border-gray-800">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="min-w-full text-left text-[10px] md:text-xs lg:text-sm whitespace-nowrap">
