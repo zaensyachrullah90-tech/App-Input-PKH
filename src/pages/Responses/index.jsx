@@ -4,6 +4,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, faFilePdf, faTrash, faCheck, faUserShield, faPlus, faSave, faChevronDown, faUpload, faFileExcel, faSpinner, faLock, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import toast, { Toaster } from 'react-hot-toast';
 
+// =========================================================================
+// GANTI DENGAN URL GOOGLE APPS SCRIPT ANDA
+// =========================================================================
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
+
 const DATA_WILAYAH = {
   "TAPIN": {
     "BAKARANGAN": [ "BAKARANGAN", "BUNDUNG", "GADUNG", "GADUNG KARAMAT", "KETAPANG", "MASTA", "PARIGI", "PARIGI KECIL", "PAUL", "TANGKAWANG", "TANGKAWANG BARU", "WARINGIN" ],
@@ -50,7 +55,11 @@ export default function Responses() {
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => { fetchForms(); checkRole(); }, []);
+  useEffect(() => { 
+    fetchForms(); 
+    checkRole();
+  }, []);
+
   useEffect(() => { if (selectedFormId) fetchResponses(selectedFormId); }, [selectedFormId]);
 
   const checkRole = async () => {
@@ -86,11 +95,11 @@ export default function Responses() {
   };
 
   // =========================================================================
-  // OPTIMISTIC DELETE: UI HILANG INSTAN, DRIVE & SPREADSHEET DIHAPUS OTOMATIS
+  // HAPUS MUTLAK: HILANG DI UI -> HANCUR DI DATABASE -> HANCUR DI SPREADSHEET & DRIVE
   // =========================================================================
   const handleAdminDelete = async (id) => {
     if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
-    if (!window.confirm('Hapus arsip ini secara permanen? Data di Google Sheet & Drive juga akan dihancurkan.')) return;
+    if (!window.confirm('Hapus arsip ini secara permanen? Data di Google Sheet & Drive juga akan dihancurkan otomatis.')) return;
     
     const recordToDelete = responses.find(r => r.id === id);
     setResponses(prev => prev.filter(r => r.id !== id));
@@ -141,6 +150,9 @@ export default function Responses() {
     return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
   };
 
+  // =========================================================================
+  // FITUR DIKEMBALIKAN: VERIFIKATOR BISA MENGINJEKSI KOLOM SPREADSHEET
+  // =========================================================================
   const handleAddVerifyColumn = async (e) => {
     e.preventDefault();
     if (!newVerifyCol.name || !newVerifyCol.label) return toast.error('Harap lengkapi ID dan Label Header.');
@@ -229,11 +241,12 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
+    if (GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
+
     const toastId = toast.loading('Menyiapkan Pembaruan...');
     let finalData = { ...verifyEditData };
 
     try {
-      // 1. UPLOAD FILE PARALEL
       const uploadPromises = Object.keys(rawVerifyFiles).map(async (key) => {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
@@ -246,33 +259,37 @@ export default function Responses() {
             const driveData = await res.json();
             if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
-      toast.success('Hasil Verifikasi Diperbarui Secara Instan!', { id: toastId });
+      // SINKRONISASI KE GOOGLE SPREADSHEET (MENUNGGU RESPON)
+      if (formConfig?.spreadsheet_id) {
+         try {
+            const sheetRes = await fetch('/api/sync-google', {
+               method: 'POST', headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ action: 'updateRow', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: finalData.nomor_registrasi, schema: activeSchema, rowData: finalData })
+            });
+            const sheetData = await sheetRes.json();
+            if(!sheetRes.ok || sheetData.error) throw new Error(sheetData.error);
+         } catch(e) {
+            toast.error(`Perhatian: Gagal Sinkron ke Spreadsheet. ${e.message}`, { duration: 6000 });
+         }
+      }
+
+      await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
+      
+      toast.success('Hasil Verifikasi Berhasil Disimpan & Tersinkronisasi!', { id: toastId });
       setResponses(prev => prev.map(item => item.id === verifyData.id ? { ...item, data: finalData } : item));
       setShowVerifyModal(false);
       setRawVerifyFiles({});
-
-      // BACKGROUND SYNC KE SUPABASE & SPREADSHEET (UPDATE ROW SPREADSHEET)
-      (async () => {
-        try {
-          await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
-          if (formConfig?.spreadsheet_id) {
-             fetch('/api/sync-google', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'updateRow', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: finalData.nomor_registrasi, schema: activeSchema, rowData: finalData })
-             });
-          }
-        } catch(e) {}
-      })();
-      
     } catch (err) { toast.error('Gagal memproses UI.', { id: toastId }); }
   };
 
+  // =========================================================================
+  // CETAK EXCEL RAPI BERGARIS DENGAN DUA OPSI
+  // =========================================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
@@ -442,22 +459,21 @@ export default function Responses() {
                       <p className="text-xs md:text-sm text-gray-400 leading-relaxed">Seluruh isian data awal pemohon telah <strong>dikunci mati oleh sistem keamanan</strong>. Anda hanya dapat mengisi kolom verifikasi yang telah disediakan di panel kanan.</p>
                     </div>
                     
-                    {!isVerifikator && (
-                      <div className="bg-black/40 p-5 md:p-6 rounded-2xl md:rounded-3xl border border-white/5 shadow-inner">
-                        <h4 className="text-xs md:text-sm font-black text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-3"><FontAwesomeIcon icon={faPlus} className="mr-3" /> Suntik Header Khusus</h4>
-                        <div className="space-y-4">
-                          <input type="text" placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
-                          <input type="text" placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
-                          <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all">
-                            <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
-                            <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
-                            <option value="file">Upload Berkas (Drive)</option>
-                          </select>
-                          {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs md:text-sm h-20 outline-none" />}
-                          <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all shadow-lg mt-2">Buat Header</button>
-                        </div>
+                    {/* FITUR DIKEMBALIKAN: VERIFIKATOR BISA SUNTIK HEADER */}
+                    <div className="bg-black/40 p-5 md:p-6 rounded-2xl md:rounded-3xl border border-white/5 shadow-inner">
+                      <h4 className="text-xs md:text-sm font-black text-primary uppercase tracking-widest mb-4 flex items-center border-b border-primary/20 pb-3"><FontAwesomeIcon icon={faPlus} className="mr-3" /> Suntik Header Khusus</h4>
+                      <div className="space-y-4">
+                        <input type="text" placeholder="ID Database (Tanpa Spasi)" value={newVerifyCol.name} onChange={(e) => setNewVerifyCol({...newVerifyCol, name: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
+                        <input type="text" placeholder="Label Tampilan Tabel" value={newVerifyCol.label} onChange={(e) => setNewVerifyCol({...newVerifyCol, label: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all" />
+                        <select value={newVerifyCol.type} onChange={(e) => setNewVerifyCol({...newVerifyCol, type: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-gray-600 text-white text-xs md:text-sm outline-none focus:border-primary transition-all">
+                          <option value="text">Teks Pendek</option><option value="number">Angka</option><option value="date">Tanggal</option>
+                          <option value="currency">Mata Uang Rp.</option><option value="select">Dropdown</option>
+                          <option value="file">Upload Berkas (Drive)</option>
+                        </select>
+                        {newVerifyCol.type === 'select' && <textarea placeholder="Pilihan dipisah koma (Cth: Layak, Tidak)" value={newVerifyCol.options} onChange={(e) => setNewVerifyCol({...newVerifyCol, options: e.target.value})} className="w-full p-4 rounded-xl bg-dark/50 border border-primary/50 text-white text-xs md:text-sm h-20 outline-none" />}
+                        <button type="button" onClick={handleAddVerifyColumn} className="w-full bg-gray-800 hover:bg-gray-700 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all shadow-lg mt-2">Buat Header</button>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   <div className="lg:col-span-2">
@@ -491,7 +507,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
