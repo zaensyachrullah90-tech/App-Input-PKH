@@ -5,7 +5,7 @@ import { faDatabase, faFilter, faFileDownload, faFolderOpen, faPrint, faTimes, f
 import toast, { Toaster } from 'react-hot-toast';
 
 // =========================================================================
-// URL GOOGLE APPS SCRIPT (JANGAN DIUBAH, SUDAH TERKUNCI AMAN)
+// WAJIB GANTI URL INI DENGAN LINK WEB APP GOOGLE APPS SCRIPT ANDA
 // =========================================================================
 const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz6js5imyGi17Qvdh7r_xu2TyWkphLN8N_fSTCqI-5ssrEpSgu5LiZyyas6wYtDGw/exec";
 
@@ -38,11 +38,13 @@ export default function Responses() {
   const globalFolderId = '1mazHH_M_cCg6Dbx2uUOdBw1NWGQ16nop';
 
   const [showExportModal, setShowExportModal] = useState(false);
-  const [exportType, setExportType] = useState('lengkap'); // FITUR BARU: 2 Opsi Cetak
+  const [exportType, setExportType] = useState('lengkap');
 
   const [exportMeta, setExportMeta] = useState(() => {
     const cachedMeta = localStorage.getItem('smart_export_meta_cache');
-    return cachedMeta ? JSON.parse(cachedMeta) : { noSurat: '', jabatan: 'Koordinator Kabupaten PKH', nama: '', nik: '' };
+    return cachedMeta ? JSON.parse(cachedMeta) : {
+      noSurat: '', jabatan: 'Koordinator Kabupaten PKH', nama: '', nik: ''
+    };
   });
 
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -51,7 +53,6 @@ export default function Responses() {
   const [newVerifyCol, setNewVerifyCol] = useState({ name: '', label: '', type: 'text', options: '' });
 
   const [rawVerifyFiles, setRawVerifyFiles] = useState({});
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => { 
     fetchForms(); 
@@ -94,12 +95,37 @@ export default function Responses() {
 
   const handleAdminDelete = async (id) => {
     if (isVerifikator) return toast.error('Akses Ditolak: Verifikator tidak memiliki akses hapus data.');
-    if (!window.confirm('Hapus arsip ini secara permanen?')) return;
+    if (!window.confirm('Hapus arsip ini secara permanen? Data di Google Sheet & Drive juga akan dihancurkan.')) return;
+    
+    // OPTIMISTIC DELETE UI INSTANT
+    const recordToDelete = responses.find(r => r.id === id);
+    setResponses(prev => prev.filter(r => r.id !== id));
+    toast.success('Data berhasil dihapus dari sistem!');
+
     try {
       await supabase.from('form_responses').delete().eq('id', id);
-      toast.success('Data dihapus permanen.');
-      setResponses(prev => prev.filter(r => r.id !== id));
-    } catch (err) {}
+
+      // KUMPULKAN URL FILE UNTUK DIHAPUS DARI DRIVE
+      const fileUrls = [];
+      activeSchema.forEach(col => {
+        if (col.type === 'file' && recordToDelete.data[col.name]?.startsWith('http')) {
+          fileUrls.push(recordToDelete.data[col.name]);
+        }
+      });
+
+      // BACKGROUND DELETE SPREADSHEET & DRIVE
+      if (formConfig?.spreadsheet_id) {
+        fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'deleteData',
+            spreadsheetId: formConfig.spreadsheet_id,
+            nomor_registrasi: recordToDelete.data.nomor_registrasi,
+            fileUrls: fileUrls
+          })
+        }).catch(e => console.error("Gagal Hapus Sheet", e));
+      }
+    } catch (err) { fetchResponses(selectedFormId); }
   };
 
   const handleRejectDelete = async (resItem) => {
@@ -139,8 +165,8 @@ export default function Responses() {
       await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
       
       if (formConfig?.spreadsheet_id) {
-        await fetch(GAS_WEB_APP_URL, {
-          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        await fetch('/api/sync-google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: formConfig.spreadsheet_id, schema: updatedSchema })
         });
       }
@@ -211,64 +237,64 @@ export default function Responses() {
 
   const handleSaveVerify = async (e) => {
     e.preventDefault();
-    if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("PASTE_URL")) return toast.error("Error: URL Google Apps Script belum dipaste!");
+    if (GAS_WEB_APP_URL === "PASTE_URL_WEB_APP_GAS_DI_SINI") return toast.error("Error: URL Google Apps Script belum dipaste!");
 
-    setIsSaving(true);
+    const toastId = toast.loading('Menyiapkan Pembaruan...');
     let finalData = { ...verifyEditData };
 
     try {
-      // PROSES UPLOAD VIA GOOGLE APPS SCRIPT BYPASS
+      // PROSES UPLOAD PARALEL
       const uploadPromises = Object.keys(rawVerifyFiles).map(async (key) => {
         const fileObject = rawVerifyFiles[key];
         if (fileObject) {
           try {
             const base64String = await compressImage(fileObject);
-            const res = await fetch(GAS_WEB_APP_URL, {
-              method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            const res = await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(driveData.link) { finalData[key] = driveData.link; } 
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
-          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; toast.error(`Gagal upload: ${err.message}`);}
+          } catch(err) { finalData[key] = 'GAGAL UPLOAD'; }
         }
       });
       await Promise.all(uploadPromises);
 
-      // SIMPAN KE SUPABASE
-      await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
-      
-      // SINKRONISASI KE GOOGLE SHEET (Tembak Baris Tindak Lanjut ke Spreadsheet)
-      if (formConfig?.spreadsheet_id) {
-         fetch(GAS_WEB_APP_URL, {
-            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'appendRow', spreadsheetId: formConfig.spreadsheet_id, schema: activeSchema, rowData: finalData })
-         }).catch(e => console.error(e));
-      }
-
-      toast.success('Hasil Verifikasi Berhasil Disimpan & Tersinkronisasi ke Spreadsheet!');
+      // OPTIMISTIC UI: UPDATE LAYAR INSTAN SEBELUM BACKGROUND PROCESS SELESAI
+      toast.success('Hasil Verifikasi Diperbarui Secara Instan!', { id: toastId });
       setResponses(prev => prev.map(item => item.id === verifyData.id ? { ...item, data: finalData } : item));
       setShowVerifyModal(false);
       setRawVerifyFiles({});
-    } catch (err) { toast.error('Gagal menyimpan verifikasi.'); } 
-    finally { setIsSaving(false); }
+
+      // BACKGROUND SYNC KE SUPABASE & SPREADSHEET
+      (async () => {
+        try {
+          await supabase.from('form_responses').update({ data: finalData }).eq('id', verifyData.id);
+          if (formConfig?.spreadsheet_id) {
+             fetch('/api/sync-google', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'updateRow', spreadsheetId: formConfig.spreadsheet_id, nomor_registrasi: finalData.nomor_registrasi, schema: activeSchema, rowData: finalData })
+             });
+          }
+        } catch(e) {}
+      })();
+      
+    } catch (err) { toast.error('Gagal memproses UI.', { id: toastId }); }
   };
 
-  // =========================================================================
-  // FITUR MUTLAK: EXCEL RAPI BERGARIS (XLS) DENGAN KONDISI 2 OPSI CETAK
-  // =========================================================================
   const handleExportExcel = () => {
     if (responses.length === 0) return toast.error('Kosong.');
     const formTitle = forms.find(f => f.id === selectedFormId)?.title || 'LAPORAN';
 
-    // Filter Schema Sesuai Opsi Cetak (Lengkap / Hanya Lampiran)
+    const headerMetadata = [['LAMPIRAN NOMOR', `="${exportMeta.noSurat.toUpperCase()}"`], ['PERIHAL', `="DATA ${formTitle.toUpperCase()}"`], [] ];
+    
     const exportSchema = exportType === 'lampiran' 
       ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
       : activeSchema;
 
     const reversedResponses = [...responses].reverse();
 
-    // RAKIT HTML KE EXCEL (.xls) AGAR SANGAT RAPI
     const tableHeadersHTML = exportSchema.map(col => `<th style="background-color: #f3f4f6; border: 1px solid #000; padding: 8px; font-weight: bold; text-transform: uppercase;">${col.label}</th>`).join('');
 
     const tableRowsHTML = reversedResponses.map((res, index) => {
@@ -324,18 +350,17 @@ export default function Responses() {
     const printWindow = window.open('', '_blank');
     const reversedResponses = [...responses].reverse();
 
-    // Filter Schema Sesuai Opsi Cetak
     const exportSchema = exportType === 'lampiran' 
       ? activeSchema.filter(col => !col.adminLocked || col.name.toLowerCase() === 'no' || col.name.toLowerCase() === 'nomor')
       : activeSchema;
 
-    const tableHeadersHTML = exportSchema.map(col => `<th>${col.label}</th>`).join('');
+    const tableHeadersHTML = exportSchema.map(col => `<th style="padding: 8px; border: 1px solid #000; text-align: left; background-color: #f3f4f6;">${col.label}</th>`).join('');
     const tableRowsHTML = reversedResponses.map((res, index) => {
       return `<tr>${exportSchema.map(col => {
             const colNameLower = col.name.toLowerCase();
             let val = res.data[col.name] || '-';
             if (colNameLower === 'no' || colNameLower === 'nomor') val = index + 1;
-            return `<td>${val}</td>`;
+            return `<td style="padding: 7px; border: 1px solid #000;">${val}</td>`;
           }).join('')}</tr>`;
     }).join('');
 
@@ -370,19 +395,6 @@ export default function Responses() {
     <div className="space-y-6 max-w-7xl mx-auto pb-20 p-2 md:p-4 lg:p-0 animate-fade-in relative">
       <Toaster position="top-right" toastOptions={{ style: { background: '#111827', color: '#fff', border: '1px solid #374151', borderRadius: '16px' } }} />
       
-      {isSaving && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
-          <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
-            <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Hasil Tindak Lanjut...</p>
-            <p className="text-gray-500 text-[10px] mt-2">Sinkronisasi dokumen ke Drive sedang berjalan.</p>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* MODAL CONFIG EXPORT DENGAN DUA OPSI CETAK YANG RAPI */}
-      {/* ======================================================== */}
       {showExportModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-lg p-6 md:p-8 rounded-3xl shadow-2xl relative animate-fade-in-up">
@@ -419,7 +431,6 @@ export default function Responses() {
         </div>
       )}
 
-      {/* RUANG VERIFIKATOR FULL SCREEN */}
       {showVerifyModal && (
         <div className="fixed inset-0 z-[100] flex bg-[#0f172a] md:bg-black/95">
           <div className="bg-[#0f172a] w-full h-full md:w-screen md:h-screen flex flex-col animate-fade-in-up overflow-hidden">
@@ -469,7 +480,6 @@ export default function Responses() {
                         const isSystemGenerated = colNameLower === 'no' || colNameLower === 'nomor';
                         const isFile = field.type === 'file';
                         
-                        // KUNCI MULTAK: Pemohon data tidak bisa diedit Verifikator
                         const isApplicantData = !field.adminLocked;
                         const isDisabled = isSystemGenerated || isApplicantData;
                         
@@ -491,7 +501,7 @@ export default function Responses() {
                                 <label htmlFor={`vfile-${field.name}`} className={`flex items-center justify-center p-4 md:p-6 rounded-xl md:rounded-2xl border border-dashed transition-all duration-300 cursor-pointer text-xs md:text-sm font-semibold ${isDisabled ? 'bg-white/5 border-white/5 text-gray-600 cursor-not-allowed' : 'bg-black/40 border-white/20 hover:border-primary hover:text-primary hover:bg-primary/5 text-gray-300 shadow-inner'}`}>
                                   <FontAwesomeIcon icon={faUpload} className="mr-3 text-lg" />
                                   <span className="truncate max-w-[200px] md:max-w-md">
-                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan di Server (Klik Untuk Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
+                                    {rawVerifyFiles[field.name]?.name || (hasFileUploaded ? 'Berkas Tersimpan (Klik Ganti)' : 'Unggah / Ambil Foto Dokumen Fisik...')}
                                   </span>
                                 </label>
                               </div>
@@ -600,11 +610,9 @@ export default function Responses() {
                         <FontAwesomeIcon icon={faUserShield} className="md:mr-2" /> <span className="hidden md:inline">Tindak Lanjut</span>
                       </button>
 
-                      {!isVerifikator && (
-                        res.data.delete_request_status === 'pending' ? (
-                          <><span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse hidden sm:inline">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2 md:px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
-                        ) : <button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[9px] md:text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>
-                      )}
+                      {res.data.delete_request_status === 'pending' ? (
+                        <><span className="text-[8px] md:text-[9px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded animate-pulse hidden sm:inline">MINTA HAPUS</span><button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faCheck}/></button><button onClick={() => handleRejectDelete(res)} className="px-2 md:px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[9px] md:text-[10px]"><FontAwesomeIcon icon={faTimes}/></button></>
+                      ) : <button onClick={() => handleAdminDelete(res.id)} className="px-2 md:px-3 py-1.5 bg-red-950/40 text-red-500 rounded-lg text-[9px] md:text-[10px] font-bold border border-red-900/50 hover:bg-red-600 hover:text-white"><FontAwesomeIcon icon={faTrash} /></button>}
                     </td>
                   </tr>
                 ))
