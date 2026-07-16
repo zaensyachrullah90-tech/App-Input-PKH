@@ -99,7 +99,7 @@ export default function Settings() {
     try {
       const res = await fetch('/api/sync-google', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
+        body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId, schema: schema })
       });
       const googleData = await res.json();
       if (res.ok && googleData.spreadsheetId) {
@@ -175,7 +175,7 @@ export default function Settings() {
         try {
           const res = await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId })
+            body: JSON.stringify({ action: 'createForm', title: newForm.title, folderId: driveFolderId, schema: generatedSchema })
           });
           const googleData = await res.json();
           if (res.ok && googleData.spreadsheetId) {
@@ -200,12 +200,14 @@ export default function Settings() {
     toast.success('Kolom ditambahkan!');
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
     
-    // UPDATE SPREADSHEET HEADERS
+    // UPDATE SPREADSHEET HEADERS SECARA FISIK
     const config = forms.find(f => f.id === selectedFormId);
-    if (config?.spreadsheet_id) {
+    let sheetId = config?.spreadsheet_id || config?.spreadsheet_link;
+    if (sheetId) {
+       if (sheetId.includes('/d/')) sheetId = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
        await fetch('/api/sync-google', {
          method: 'POST', headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
+         body: JSON.stringify({ action: 'addColumn', spreadsheetId: sheetId, columnLabel: updatedSchema[updatedSchema.length - 1].label })
        });
     }
     fetchForms();
@@ -213,16 +215,20 @@ export default function Settings() {
 
   const handleDeleteColumn = async (colName) => {
     if (!window.confirm(`Hapus kolom "${colName}" dari database?`)) return;
+    const colToDelete = activeSchema.find(col => col.name === colName);
     const updatedSchema = activeSchema.filter(col => col.name !== colName);
     setActiveSchema(updatedSchema);
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
     toast.success('Kolom dihapus.');
     
+    // DELETE KOLOM DI SPREADSHEET SECARA FISIK
     const config = forms.find(f => f.id === selectedFormId);
-    if (config?.spreadsheet_id) {
+    let sheetId = config?.spreadsheet_id || config?.spreadsheet_link;
+    if (sheetId && colToDelete) {
+       if (sheetId.includes('/d/')) sheetId = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
        await fetch('/api/sync-google', {
          method: 'POST', headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
+         body: JSON.stringify({ action: 'deleteColumn', spreadsheetId: sheetId, columnLabel: colToDelete.label })
        });
     }
     fetchForms();
@@ -240,14 +246,6 @@ export default function Settings() {
     setEditingColName(null);
     toast.success('Perubahan kolom disimpan!');
     await supabase.from('forms').update({ schema: updatedSchema }).eq('id', selectedFormId);
-    
-    const config = forms.find(f => f.id === selectedFormId);
-    if (config?.spreadsheet_id) {
-       await fetch('/api/sync-google', {
-         method: 'POST', headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ action: 'updateHeaders', spreadsheetId: config.spreadsheet_id, schema: updatedSchema })
-       });
-    }
     fetchForms();
   };
 
