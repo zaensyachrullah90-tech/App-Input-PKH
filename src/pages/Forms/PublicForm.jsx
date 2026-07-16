@@ -162,9 +162,7 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     
-    // Kunci layar saat upload berlangsung
     setIsSaving(true);
-    
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
     schema.forEach(col => {
@@ -173,8 +171,18 @@ export default function PublicForm() {
       }
     });
 
+    // 1. PEMETAAN PINTAR (SMART MAPPING)
+    // Ubah data menjadi map berdasarkan LABEL huruf besar (bukan name schema) agar cocok dengan header Spreadsheet Anda
+    let mappedData = {};
+    mappedData["NOMOR_REGISTRASI"] = finalData.nomor_registrasi; 
+
+    schema.forEach(col => {
+      let labelName = (col.label || col.name).toString().toUpperCase().trim();
+      mappedData[labelName] = finalData[col.name];
+    });
+
     try {
-      // 1. UPLOAD FILE
+      // 2. UPLOAD FILE TERLEBIH DAHULU
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -185,14 +193,20 @@ export default function PublicForm() {
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
+            if(res.ok && driveData.link) { 
+               finalData[key] = driveData.link; 
+               
+               // Update juga di mappedData agar link tersimpan ke Google Sheets
+               const colLabel = schema.find(c => c.name === key)?.label?.toUpperCase() || key.toUpperCase();
+               mappedData[colLabel] = driveData.link;
+            } 
             else { throw new Error(driveData.error || 'Server Error'); }
           } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // 2. SIMPAN KE SUPABASE (DATABASE UTAMA)
+      // 3. SIMPAN KE SUPABASE (DATABASE UTAMA)
       const saveEditingId = editingId;
       
       if (saveEditingId) {
@@ -202,11 +216,9 @@ export default function PublicForm() {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
       }
 
-      // 3. SINKRONISASI KE GOOGLE SHEETS
-      // PERBAIKAN: Gunakan spreadsheet_link sebagai prioritas (Sesuai dengan screenshot database Anda!)
+      // 4. SINKRONISASI KE GOOGLE SHEETS MENGGUNAKAN SMART SYNC
       let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
       
-      // AUTO-EKSTRAK: Kalau isinya URL panjang, potong ambil ID-nya saja
       if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
         const match = currentSheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
         if (match && match[1]) {
@@ -214,7 +226,6 @@ export default function PublicForm() {
         }
       }
       
-      // Kalau form belum punya sheet sama sekali
       if (!currentSheetId && !saveEditingId) {
         try {
           const createRes = await fetch('/api/sync-google', {
@@ -226,29 +237,22 @@ export default function PublicForm() {
           if (createData.spreadsheetId) {
             currentSheetId = createData.spreadsheetId;
             await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-            
-            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
-            await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
-            });
+            // Tidak perlu push header manual lagi, mesin GAS akan otomatis membaca Object.keys dari mappedData
           }
         } catch (e) {
           console.error("Gagal membuat Sheet Baru:", e);
         }
       }
 
-      // KEKSEKUSI PENGIRIMAN DATA KE SHEETS
+      // EKSEKUSI PENGIRIMAN DATA KE SHEETS DENGAN 'syncRow'
       if (currentSheetId) {
         try {
           await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-               action: saveEditingId ? 'updateRow' : 'appendRow', 
+               action: 'syncRow', // Memanggil mesin baru
                spreadsheetId: currentSheetId, 
-               nomor_registrasi: finalData.nomor_registrasi, 
-               schema: schema, // KITA GUNAKAN SCHEMA ASLI AGAR POSISI KOLOM TIDAK BERGESER!
-               rowData: finalData 
+               mappedData: mappedData 
             })
           });
         } catch (e) {
@@ -256,7 +260,7 @@ export default function PublicForm() {
         }
       }
 
-      // 4. SUKSES, UPDATE TAMPILAN DAN RESET
+      // 5. SUKSES, UPDATE TAMPILAN DAN RESET
       setIsSaving(false);
       toast.success('Data Berhasil Direkam & Terhubung Ke Spreadsheet!');
       
