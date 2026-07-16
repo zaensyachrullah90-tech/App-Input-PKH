@@ -171,18 +171,7 @@ export default function PublicForm() {
       }
     });
 
-    // 1. PEMETAAN PINTAR (SMART MAPPING)
-    // Ubah data menjadi map berdasarkan LABEL huruf besar (bukan name schema) agar cocok dengan header Spreadsheet Anda
-    let mappedData = {};
-    mappedData["NOMOR_REGISTRASI"] = finalData.nomor_registrasi; 
-
-    schema.forEach(col => {
-      let labelName = (col.label || col.name).toString().toUpperCase().trim();
-      mappedData[labelName] = finalData[col.name];
-    });
-
     try {
-      // 2. UPLOAD FILE TERLEBIH DAHULU
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -193,22 +182,14 @@ export default function PublicForm() {
               body: JSON.stringify({ action: 'uploadFile', fileName: fileObject.name, mimeType: fileObject.type, base64Data: base64String, folderId: globalFolderId, formTitle: formConfig?.title || 'Umum' })
             });
             const driveData = await res.json();
-            if(res.ok && driveData.link) { 
-               finalData[key] = driveData.link; 
-               
-               // Update juga di mappedData agar link tersimpan ke Google Sheets
-               const colLabel = schema.find(c => c.name === key)?.label?.toUpperCase() || key.toUpperCase();
-               mappedData[colLabel] = driveData.link;
-            } 
+            if(res.ok && driveData.link) { finalData[key] = driveData.link; } 
             else { throw new Error(driveData.error || 'Server Error'); }
           } catch(err) { finalData[key] = `GAGAL UPLOAD`; toast.error(`Berkas gagal: ${err.message}`); }
         }
       });
       await Promise.all(uploadPromises);
 
-      // 3. SIMPAN KE SUPABASE (DATABASE UTAMA)
       const saveEditingId = editingId;
-      
       if (saveEditingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
       } else {
@@ -216,7 +197,6 @@ export default function PublicForm() {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
       }
 
-      // 4. SINKRONISASI KE GOOGLE SHEETS MENGGUNAKAN SMART SYNC
       let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
       
       if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
@@ -230,29 +210,26 @@ export default function PublicForm() {
         try {
           const createRes = await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
+            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title, schema: schema })
           });
           const createData = await createRes.json();
-          
           if (createData.spreadsheetId) {
             currentSheetId = createData.spreadsheetId;
             await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-            // Tidak perlu push header manual lagi, mesin GAS akan otomatis membaca Object.keys dari mappedData
           }
-        } catch (e) {
-          console.error("Gagal membuat Sheet Baru:", e);
-        }
+        } catch (e) {}
       }
 
-      // EKSEKUSI PENGIRIMAN DATA KE SHEETS DENGAN 'syncRow'
       if (currentSheetId) {
         try {
           await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-               action: 'syncRow', // Memanggil mesin baru
+               action: saveEditingId ? 'updateRow' : 'appendRow', 
                spreadsheetId: currentSheetId, 
-               mappedData: mappedData 
+               nomor_registrasi: finalData.nomor_registrasi, 
+               schema: schema, 
+               rowData: finalData 
             })
           });
         } catch (e) {
@@ -260,7 +237,6 @@ export default function PublicForm() {
         }
       }
 
-      // 5. SUKSES, UPDATE TAMPILAN DAN RESET
       setIsSaving(false);
       toast.success('Data Berhasil Direkam & Terhubung Ke Spreadsheet!');
       
@@ -281,7 +257,6 @@ export default function PublicForm() {
     } catch (err) { 
       setIsSaving(false); 
       toast.error('Gagal merekam data, pastikan koneksi lancar.'); 
-      console.error(err);
     } 
   };
 
@@ -438,7 +413,7 @@ export default function PublicForm() {
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
-                    <th className="px-5 py-4 font-black text-red-400 text-center border-l border-gray-800">Aksi Pemohon</th>
+                    <th className="px-5 py-4 font-black text-red-400 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">Aksi Pemohon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
@@ -472,7 +447,7 @@ export default function PublicForm() {
                            );
                         })}
 
-                        <td className="px-5 py-4 text-center border-l border-gray-800/50">
+                        <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
                            {res.data.delete_request_status === 'pending' ? (
                              <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
                            ) : (
