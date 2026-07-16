@@ -172,6 +172,7 @@ export default function PublicForm() {
     });
 
     try {
+      // 1. Upload Berkas
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -189,6 +190,7 @@ export default function PublicForm() {
       });
       await Promise.all(uploadPromises);
 
+      // 2. Simpan ke Supabase Lokal
       const saveEditingId = editingId;
       if (saveEditingId) {
         await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
@@ -197,6 +199,7 @@ export default function PublicForm() {
         await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
       }
 
+      // 3. Persiapan Sinkronisasi Spreadsheet
       let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
       
       if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
@@ -220,9 +223,11 @@ export default function PublicForm() {
         } catch (e) {}
       }
 
+      // 4. Proses Sinkronisasi & Deteksi Status
+      let sheetSuccess = false;
       if (currentSheetId) {
         try {
-          await fetch('/api/sync-google', {
+          const syncRes = await fetch('/api/sync-google', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                action: saveEditingId ? 'updateRow' : 'appendRow', 
@@ -232,13 +237,26 @@ export default function PublicForm() {
                rowData: finalData 
             })
           });
+          
+          const syncData = await syncRes.json();
+          if(syncData.success) {
+             sheetSuccess = true;
+          } else {
+             console.error("Kesalahan dari Google Apps Script:", syncData.error);
+          }
         } catch (e) {
-          console.error("Gagal update baris di Spreadsheet:", e);
+          console.error("Gagal Request ke API Proxy:", e);
         }
       }
 
+      // 5. Eksekusi Reset UI
       setIsSaving(false);
-      toast.success('Data Berhasil Direkam & Terhubung Ke Spreadsheet!');
+      
+      if (sheetSuccess) {
+         toast.success('Data Berhasil Direkam & TERSINKRONISASI ke Spreadsheet!');
+      } else {
+         toast.error('Data Tersimpan di Sistem Lokal, TAPI GAGAL Masuk Spreadsheet Google. Cek Deploy GAS Anda.', { duration: 6000 });
+      }
       
       if (saveEditingId) {
         setResponses(prev => prev.map(item => item.id === saveEditingId ? { ...item, data: finalData } : item));
@@ -256,7 +274,7 @@ export default function PublicForm() {
 
     } catch (err) { 
       setIsSaving(false); 
-      toast.error('Gagal merekam data, pastikan koneksi lancar.'); 
+      toast.error('Gagal merekam data, pastikan koneksi jaringan stabil.'); 
     } 
   };
 
@@ -287,7 +305,7 @@ export default function PublicForm() {
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
             <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Database & Spreadsheet...</p>
-            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Mohon tidak menutup halaman ini.</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Sistem Sedang Mencocokkan Kolom Sheet. Jangan Tutup Tab.</p>
           </div>
         </div>
       )}
