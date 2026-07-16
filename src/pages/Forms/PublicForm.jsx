@@ -162,7 +162,7 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     
-    // Pastikan layar terkunci sejak awal proses ditekan
+    // Kunci layar saat upload berlangsung
     setIsSaving(true);
     
     let finalData = { ...formData, nomor_registrasi: registrationNo };
@@ -173,10 +173,8 @@ export default function PublicForm() {
       }
     });
 
-    const googleSchema = [{ name: 'nomor_registrasi', label: 'NO REGISTRASI' }, ...schema];
-
     try {
-      // 1. UPLOAD FILE TERLEBIH DAHULU
+      // 1. UPLOAD FILE
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -205,17 +203,18 @@ export default function PublicForm() {
       }
 
       // 3. SINKRONISASI KE GOOGLE SHEETS
-      let currentSheetId = formConfig?.spreadsheet_id;
+      // PERBAIKAN: Gunakan spreadsheet_link sebagai prioritas (Sesuai dengan screenshot database Anda!)
+      let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
       
-      // >>> PENAMBAHAN ALGORITMA AUTO-EKSTRAK ID <<<
-      // Mengekstrak ID asli jika admin mengisi tautan utuh (URL) di dalam Supabase
+      // AUTO-EKSTRAK: Kalau isinya URL panjang, potong ambil ID-nya saja
       if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
         const match = currentSheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
         if (match && match[1]) {
-          currentSheetId = match[1]; // Memotong dan hanya menyisakan ID-nya saja
+          currentSheetId = match[1]; 
         }
       }
       
+      // Kalau form belum punya sheet sama sekali
       if (!currentSheetId && !saveEditingId) {
         try {
           const createRes = await fetch('/api/sync-google', {
@@ -228,10 +227,10 @@ export default function PublicForm() {
             currentSheetId = createData.spreadsheetId;
             await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
             
-            const headerRowData = Object.fromEntries(googleSchema.map(col => [col.name, col.label.toUpperCase()]));
+            const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
             await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: googleSchema, rowData: headerRowData })
+              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
             });
           }
         } catch (e) {
@@ -239,7 +238,7 @@ export default function PublicForm() {
         }
       }
 
-      // Eksekusi pengiriman data final ke Google Spreadsheet
+      // KEKSEKUSI PENGIRIMAN DATA KE SHEETS
       if (currentSheetId) {
         try {
           await fetch('/api/sync-google', {
@@ -248,7 +247,7 @@ export default function PublicForm() {
                action: saveEditingId ? 'updateRow' : 'appendRow', 
                spreadsheetId: currentSheetId, 
                nomor_registrasi: finalData.nomor_registrasi, 
-               schema: googleSchema, 
+               schema: schema, // KITA GUNAKAN SCHEMA ASLI AGAR POSISI KOLOM TIDAK BERGESER!
                rowData: finalData 
             })
           });
