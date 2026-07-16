@@ -162,8 +162,8 @@ export default function PublicForm() {
     e.preventDefault();
     if (formConfig?.is_active === false) return toast.error('Penerimaan ditutup.');
     
-    const hasFiles = Object.keys(rawFiles).length > 0;
-    if (hasFiles) setIsSaving(true);
+    // Pastikan layar terkunci sejak awal proses ditekan
+    setIsSaving(true);
     
     let finalData = { ...formData, nomor_registrasi: registrationNo };
 
@@ -173,7 +173,11 @@ export default function PublicForm() {
       }
     });
 
+    // PERBAIKAN: Inject 'nomor_registrasi' ke dalam Google Schema agar Apps Script bisa membacanya 
+    const googleSchema = [{ name: 'nomor_registrasi', label: 'NO REGISTRASI' }, ...schema];
+
     try {
+      // 1. UPLOAD FILE TERLEBIH DAHULU
       const uploadPromises = Object.keys(rawFiles).map(async (key) => {
         const fileObject = rawFiles[key];
         if (fileObject) {
@@ -190,18 +194,72 @@ export default function PublicForm() {
         }
       });
       await Promise.all(uploadPromises);
-      setIsSaving(false); 
 
-      toast.success('Data Berhasil Direkam & Dikirim ke Cloud!');
+      // 2. SIMPAN KE SUPABASE (DATABASE UTAMA)
       const saveEditingId = editingId;
+      
+      if (saveEditingId) {
+        await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
+      } else {
+        const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
+        await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
+      }
+
+      // 3. SINKRONISASI KE GOOGLE SHEETS
+      let currentSheetId = formConfig?.spreadsheet_id;
+      
+      if (!currentSheetId && !saveEditingId) {
+        try {
+          const createRes = await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
+          });
+          const createData = await createRes.json();
+          
+          if (createData.spreadsheetId) {
+            currentSheetId = createData.spreadsheetId;
+            await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
+            
+            // Header awal menggunakan googleSchema (ada No Registrasi)
+            const headerRowData = Object.fromEntries(googleSchema.map(col => [col.name, col.label.toUpperCase()]));
+            await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: googleSchema, rowData: headerRowData })
+            });
+          }
+        } catch (e) {
+          console.error("Gagal membuat Sheet Baru:", e);
+        }
+      }
+
+      if (currentSheetId) {
+        try {
+          await fetch('/api/sync-google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+               action: saveEditingId ? 'updateRow' : 'appendRow', 
+               spreadsheetId: currentSheetId, 
+               nomor_registrasi: finalData.nomor_registrasi, 
+               schema: googleSchema, // Menggunakan googleSchema
+               rowData: finalData 
+            })
+          });
+        } catch (e) {
+          console.error("Gagal update baris di Spreadsheet:", e);
+        }
+      }
+
+      // 4. SUKSES, UPDATE TAMPILAN DAN RESET
+      setIsSaving(false);
+      toast.success('Data Berhasil Direkam & Terhubung Ke Spreadsheet!');
       
       if (saveEditingId) {
         setResponses(prev => prev.map(item => item.id === saveEditingId ? { ...item, data: finalData } : item));
       } else {
-        const tempId = 'temp-' + Date.now();
-        setResponses(prev => [{ id: tempId, data: finalData, created_at: new Date().toISOString() }, ...prev]);
+        fetchResponses(); // Ambil ulang data agar mendapat format waktu dan ID baru
       }
 
+      // Generate nomor baru untuk input selanjutnya
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
@@ -210,54 +268,11 @@ export default function PublicForm() {
       setFormData(resetData); setRawFiles({}); setEditingId(null);
       handleTabSwitch('results'); 
 
-      (async () => {
-        if (saveEditingId) {
-          await supabase.from('form_responses').update({ data: finalData }).eq('id', saveEditingId);
-        } else {
-          const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
-          await supabase.from('form_responses').insert([{ form_id: formId, data: finalData, kabupaten: kabKey ? finalData[kabKey] : 'Publik' }]);
-          fetchResponses(); 
-        }
-
-        let currentSheetId = formConfig?.spreadsheet_id;
-        if (!currentSheetId && !saveEditingId) {
-          try {
-            const createRes = await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'createForm', title: `Data - ${formConfig.title}`, folderId: globalFolderId, formTitle: formConfig.title })
-            });
-            const createData = await createRes.json();
-            if (createData.spreadsheetId) {
-              currentSheetId = createData.spreadsheetId;
-              await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
-              const headerRowData = Object.fromEntries(schema.map(col => [col.name, col.label.toUpperCase()]));
-              await fetch('/api/sync-google', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: headerRowData })
-              });
-            }
-          } catch (e) {}
-        }
-
-        if (currentSheetId) {
-          try {
-            await fetch('/api/sync-google', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                 action: saveEditingId ? 'updateRow' : 'appendRow', 
-                 spreadsheetId: currentSheetId, 
-                 nomor_registrasi: finalData.nomor_registrasi, 
-                 schema: schema, 
-                 rowData: finalData 
-              })
-            });
-          } catch (e) {
-            console.error("Gagal melakukan sinkronisasi row ke Spreadsheet:", e);
-          }
-        }
-      })();
-
-    } catch (err) { setIsSaving(false); toast.error('Gagal merekam data.'); } 
+    } catch (err) { 
+      setIsSaving(false); 
+      toast.error('Gagal merekam data, pastikan koneksi lancar.'); 
+      console.error(err);
+    } 
   };
 
   const handleEdit = (responseItem) => {
@@ -286,8 +301,8 @@ export default function PublicForm() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center">
           <div className="bg-[#0f172a] border border-white/10 p-6 md:p-8 rounded-2xl flex flex-col items-center shadow-2xl animate-scale-up">
             <FontAwesomeIcon icon={faSpinner} spin size="3xl" className="text-primary mb-4" />
-            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Server Drive...</p>
-            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Kompresi Cerdas & Auto-Folder Aktif (200-700 KB).</p>
+            <p className="text-white text-xs md:text-sm font-black uppercase tracking-widest text-center">Menyimpan Ke Database & Spreadsheet...</p>
+            <p className="text-green-400 font-bold text-[10px] mt-2 text-center">Mohon tidak menutup halaman ini.</p>
           </div>
         </div>
       )}
@@ -349,7 +364,7 @@ export default function PublicForm() {
                       {isFile ? (
                         <div className="relative">
                           <input type="file" onChange={(e) => handleFileChange(e, field.name)} className="hidden" id={`file-${field.name}`}/>
-                          <label htmlFor={`file-${file.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60`}>
+                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
                             <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
                           </label>
