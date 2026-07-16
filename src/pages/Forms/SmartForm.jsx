@@ -29,6 +29,7 @@ export default function SmartForm({ userProfile }) {
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
   const [formConfig, setFormConfig] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   
   const globalFolderId = localStorage.getItem('global_drive_folder_id') || '';
 
@@ -78,15 +79,11 @@ export default function SmartForm({ userProfile }) {
 
     if (name.includes('kabupaten')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('kecamatan') || k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     } else if (name.includes('kecamatan')) {
       Object.keys(newFormData).forEach(k => {
-        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) {
-          newFormData[k] = '';
-        }
+        if (k.toLowerCase().includes('desa') || k.toLowerCase().includes('kelurahan')) newFormData[k] = '';
       });
     }
 
@@ -106,14 +103,13 @@ export default function SmartForm({ userProfile }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formId) return;
-    
-    const toastId = toast.loading('Menyimpan Berkas...');
+    setIsSaving(true);
     let finalData = { ...formData };
 
     try {
+      // 1. Upload Berkas
       for (const key in finalData) {
         if (finalData[key]?.isFile) {
-          toast.loading(`Menaikkan berkas...`, { id: toastId });
           try {
             const res = await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -125,8 +121,7 @@ export default function SmartForm({ userProfile }) {
         }
       }
 
-      toast.loading('Menyimpan ke Database...', { id: toastId });
-      
+      // 2. Simpan Database Instan
       const kabKey = Object.keys(finalData).find(k => k.toLowerCase().includes('kabupaten'));
       const kabupatenVal = kabKey ? finalData[kabKey] : 'Admin';
 
@@ -135,27 +130,29 @@ export default function SmartForm({ userProfile }) {
       }]);
       if (dbError) throw dbError;
 
-      let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
-      if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
-        const match = currentSheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
-        if (match && match[1]) {
-          currentSheetId = match[1]; 
-        }
+      // 3. Background Sync (SILENT MODE)
+      const backgroundAdminSync = async () => {
+         let currentSheetId = formConfig?.spreadsheet_id || formConfig?.spreadsheet_link;
+         if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
+           const match = currentSheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+           if (match && match[1]) currentSheetId = match[1]; 
+         }
+         
+         if (currentSheetId) {
+           fetch('/api/sync-google', {
+             method: 'POST', headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
+           }).catch(e => console.error("Silent Sync API Error:", e));
+         }
       }
+      
+      backgroundAdminSync(); // Fire and Forget
 
-      if (currentSheetId) {
-        toast.loading('Sinkronisasi Google Sheets...', { id: toastId });
-        try {
-          await fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'appendRow', spreadsheetId: currentSheetId, schema: schema, rowData: finalData })
-          });
-        } catch(e) {}
-      }
-
-      toast.success('Arsip Berhasil Diamankan!', { id: toastId });
+      setIsSaving(false);
+      toast.success('Data Diamankan! Sinkronisasi otomatis ke Spreadsheet.');
       fetchFormSetup(); 
-    } catch (err) { toast.error('Gagal menyimpan.', { id: toastId }); }
+
+    } catch (err) { setIsSaving(false); toast.error('Gagal menyimpan.'); }
   };
 
   if (loading) return <div className="flex justify-center h-64"><FontAwesomeIcon icon={faSpinner} spin size="3x" className="text-primary mt-20" /></div>;
@@ -203,17 +200,13 @@ export default function SmartForm({ userProfile }) {
                            } else if (colNameLower.includes('kecamatan')) {
                              const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
                              const kabVal = kabKey ? formData[kabKey] : null;
-                             if (kabVal && DATA_WILAYAH[kabVal]) {
-                               selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
-                             }
+                             if (kabVal && DATA_WILAYAH[kabVal]) selectOptions = Object.keys(DATA_WILAYAH[kabVal]);
                            } else if (colNameLower.includes('desa') || colNameLower.includes('kelurahan')) {
                              const kabKey = Object.keys(formData).find(k => k.toLowerCase().includes('kabupaten'));
                              const kecKey = Object.keys(formData).find(k => k.toLowerCase().includes('kecamatan'));
                              const kabVal = kabKey ? formData[kabKey] : null;
                              const kecVal = kecKey ? formData[kecKey] : null;
-                             if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) {
-                               selectOptions = DATA_WILAYAH[kabVal][kecVal];
-                             }
+                             if (kabVal && kecVal && DATA_WILAYAH[kabVal] && DATA_WILAYAH[kabVal][kecVal]) selectOptions = DATA_WILAYAH[kabVal][kecVal];
                            }
 
                            return selectOptions.map(opt => <option key={opt} value={opt} className="bg-darker">{opt}</option>);
@@ -235,7 +228,9 @@ export default function SmartForm({ userProfile }) {
               );
             })}
           </div>
-          <button type="submit" className="w-full bg-primary hover:bg-yellow-600 text-darker font-black py-4 rounded-xl uppercase text-xs tracking-widest">Simpan & Sinkronisasi</button>
+          <button type="submit" disabled={isSaving} className="w-full bg-primary hover:bg-yellow-600 text-darker font-black py-4 rounded-xl uppercase text-xs tracking-widest flex items-center justify-center">
+             {isSaving ? <FontAwesomeIcon icon={faSpinner} spin className="mr-2"/> : ''} {isSaving ? 'Menyimpan...' : 'Simpan & Sinkronisasi'}
+          </button>
         </form>
       </div>
     </div>
