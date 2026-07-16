@@ -240,16 +240,20 @@ export default function PublicForm() {
         }
 
         if (currentSheetId) {
-          fetch('/api/sync-google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-               action: saveEditingId ? 'updateRow' : 'appendRow', 
-               spreadsheetId: currentSheetId, 
-               nomor_registrasi: finalData.nomor_registrasi, 
-               schema: schema, 
-               rowData: finalData 
-            })
-          });
+          try {
+            await fetch('/api/sync-google', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                 action: saveEditingId ? 'updateRow' : 'appendRow', 
+                 spreadsheetId: currentSheetId, 
+                 nomor_registrasi: finalData.nomor_registrasi, 
+                 schema: schema, 
+                 rowData: finalData 
+              })
+            });
+          } catch (e) {
+            console.error("Gagal melakukan sinkronisasi row ke Spreadsheet:", e);
+          }
         }
       })();
 
@@ -345,7 +349,7 @@ export default function PublicForm() {
                       {isFile ? (
                         <div className="relative">
                           <input type="file" onChange={(e) => handleFileChange(e, field.name)} className="hidden" id={`file-${field.name}`}/>
-                          <label htmlFor={`file-${field.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60`}>
+                          <label htmlFor={`file-${file.name}`} className={`flex items-center justify-center p-4 md:p-5 rounded-xl border border-dashed transition-all duration-300 cursor-pointer bg-black/40 border-white/20 hover:border-primary text-gray-300 hover:bg-black/60`}>
                             <FontAwesomeIcon icon={faUpload} className="mr-3 text-primary text-base" />
                             <span className="font-semibold text-xs md:text-sm truncate px-2">{rawFiles[field.name]?.name || formData[field.name] || 'Pilih / Ambil Foto Berkas...'}</span>
                           </label>
@@ -409,7 +413,7 @@ export default function PublicForm() {
                     {schema.filter(s => s.adminLocked && s.name.toLowerCase() !== 'no' && s.name.toLowerCase() !== 'nomor').map(col => (
                       <th key={col.name} className="px-5 py-4 font-black text-blue-400 border-l border-blue-900/50 bg-blue-900/10"><FontAwesomeIcon icon={faUserShield} className="mr-1.5 opacity-50"/> {col.label}</th>
                     ))}
-                    <th className="px-5 py-4 font-black text-red-400 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">Aksi Pemohon</th>
+                    <th className="px-5 py-4 font-black text-red-400 text-center border-l border-gray-800">Aksi Pemohon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
@@ -443,7 +447,7 @@ export default function PublicForm() {
                            );
                         })}
 
-                        <td className="px-5 py-4 text-center sticky right-0 bg-[#0b1120] z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.5)]">
+                        <td className="px-5 py-4 text-center border-l border-gray-800/50">
                            {res.data.delete_request_status === 'pending' ? (
                              <span className="text-[8px] font-black text-yellow-500 bg-yellow-500/10 px-2 py-1.5 rounded border border-yellow-500/20">MENUNGGU ACC</span>
                            ) : (
