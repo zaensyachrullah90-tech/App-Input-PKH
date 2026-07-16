@@ -9,13 +9,14 @@ export default async function handler(req, res) {
   const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
   try {
+    // PERBAIKAN: Mencegah 'Double Stringify' yang membuat GAS gagal membaca data
+    const payloadData = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+
     const response = await fetch(GAS_WEB_APP_URL, {
       method: 'POST',
-      // PERBAIKAN 1: Ubah menjadi text/plain untuk bypass penolakan preflight Google Apps Script
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(req.body),
-      // PERBAIKAN 2: Wajib tambahkan ini agar Next.js mau mengikuti redirect 302 dari Google
-      redirect: 'follow' 
+      headers: { 'Content-Type': 'application/json' },
+      body: payloadData,
+      redirect: 'follow' // Wajib dipertahankan agar Next.js mengikuti redirect Google
     });
 
     const text = await response.text();
@@ -23,9 +24,8 @@ export default async function handler(req, res) {
     try { 
       data = JSON.parse(text); 
     } catch(e) { 
-      // PERBAIKAN 3: Jika masih gagal, teks asli dari Google akan tercetak di terminal/log Vercel Anda
-      console.error("RESPONS GAGAL DARI GOOGLE:", text); 
-      throw new Error('Balasan dari Google tidak valid. Cek log terminal server Anda.'); 
+      console.error("Error Parsing dari GAS:", text);
+      throw new Error('Balasan dari Google tidak valid. Cek log server.'); 
     }
     
     if (data.error) throw new Error(data.error);
