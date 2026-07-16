@@ -5,18 +5,16 @@ export const config = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // URL GOOGLE APPS SCRIPT ANDA SUDAH SAYA KUNCI MATI DI SINI
   const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwXJXIv7D3hqpMM_b-Kg4nqQ0tAtX0HEq6-jSad74eLSuLZAtvtwm-eY5jnDDrhTmz7/exec";
 
   try {
-    // PERBAIKAN: Mencegah 'Double Stringify' yang membuat GAS gagal membaca data
     const payloadData = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
 
     const response = await fetch(GAS_WEB_APP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payloadData,
-      redirect: 'follow' // Wajib dipertahankan agar Next.js mengikuti redirect Google
+      redirect: 'follow'
     });
 
     const text = await response.text();
