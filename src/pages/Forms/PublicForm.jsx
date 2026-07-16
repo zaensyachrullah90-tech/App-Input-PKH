@@ -173,7 +173,6 @@ export default function PublicForm() {
       }
     });
 
-    // PERBAIKAN: Inject 'nomor_registrasi' ke dalam Google Schema agar Apps Script bisa membacanya 
     const googleSchema = [{ name: 'nomor_registrasi', label: 'NO REGISTRASI' }, ...schema];
 
     try {
@@ -208,6 +207,15 @@ export default function PublicForm() {
       // 3. SINKRONISASI KE GOOGLE SHEETS
       let currentSheetId = formConfig?.spreadsheet_id;
       
+      // >>> PENAMBAHAN ALGORITMA AUTO-EKSTRAK ID <<<
+      // Mengekstrak ID asli jika admin mengisi tautan utuh (URL) di dalam Supabase
+      if (currentSheetId && (currentSheetId.includes('docs.google.com') || currentSheetId.includes('/d/'))) {
+        const match = currentSheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        if (match && match[1]) {
+          currentSheetId = match[1]; // Memotong dan hanya menyisakan ID-nya saja
+        }
+      }
+      
       if (!currentSheetId && !saveEditingId) {
         try {
           const createRes = await fetch('/api/sync-google', {
@@ -220,7 +228,6 @@ export default function PublicForm() {
             currentSheetId = createData.spreadsheetId;
             await supabase.from('forms').update({ spreadsheet_id: currentSheetId, spreadsheet_link: createData.spreadsheetUrl }).eq('id', formId);
             
-            // Header awal menggunakan googleSchema (ada No Registrasi)
             const headerRowData = Object.fromEntries(googleSchema.map(col => [col.name, col.label.toUpperCase()]));
             await fetch('/api/sync-google', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -232,6 +239,7 @@ export default function PublicForm() {
         }
       }
 
+      // Eksekusi pengiriman data final ke Google Spreadsheet
       if (currentSheetId) {
         try {
           await fetch('/api/sync-google', {
@@ -240,7 +248,7 @@ export default function PublicForm() {
                action: saveEditingId ? 'updateRow' : 'appendRow', 
                spreadsheetId: currentSheetId, 
                nomor_registrasi: finalData.nomor_registrasi, 
-               schema: googleSchema, // Menggunakan googleSchema
+               schema: googleSchema, 
                rowData: finalData 
             })
           });
@@ -256,10 +264,9 @@ export default function PublicForm() {
       if (saveEditingId) {
         setResponses(prev => prev.map(item => item.id === saveEditingId ? { ...item, data: finalData } : item));
       } else {
-        fetchResponses(); // Ambil ulang data agar mendapat format waktu dan ID baru
+        fetchResponses(); 
       }
 
-      // Generate nomor baru untuk input selanjutnya
       const newAutoNum = `REG-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
       setRegistrationNo(newAutoNum);
       const resetData = { nomor_registrasi: newAutoNum };
